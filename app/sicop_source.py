@@ -1,11 +1,11 @@
-"""Extract records from SICOP's *paginated* public open-data table.
+"""Read the public SICOP 'Datos abiertos concursos' report safely.
 
-The page currently defaults to 10 rows, and accepts page_no in its URL.
-Never treat a network error, invalid HTML or a repeated first page as the end.
+The report is rendered as HTML with pagination; its table layout is not an
+API contract. Accept alternate header layouts, but never turn a blocked,
+malformed or repeated page into a successful completed synchronization.
 """
 from dataclasses import dataclass
 import hashlib
-import math
 import re
 import unicodedata
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -35,85 +35,159 @@ class SourcePage:
     signature: str
 
 
+# SICOP's displayed columns (including No., which isn't persisted).
+REPORT_HEADERS = (
+    'No.', 'Descripción', 'Número procedimiento', 'Institución',
+    'Tipo Procedimiento', 'Tipo modalidad', 'Clasificación objeto',
+    'Partida', 'Número de línea', 'Adjudicatario', 'Moneda', 'Monto',
+    'Tipo de cambio', 'Monto adjudicado en colones',
+    'Estado de procedimiento',
+)
+PROCEDURE_HEADERS = {'numero_procedimiento', 'numero_de_procedimiento',
+                     'procedure_number'}
+# Proc numbers like 2026LD-000123-0006400001, 2025XE-000853-0000400001.
+PROCEDURE = re.compile(r'\b(?:19|20)\d{2}[A-Z]{2,4}-\d{4,8}-\d{8,12}\b', re.I)
+PAGE_META = re.compile(
+    r'(\d[\d.,]*)\s+resultados\s*\[\s*(\d+)\s+de\s+(\d+)\s+p[aá]ginas?\s*\]',
+    re.I,
+)
+
+
+def _cells(tr):
+    """Include both TD and TH: some report templates use either for rows."""
+    return [c.get_text(' ', strip=True).replace('\xa0', ' ').strip()
+            for c in tr.find_all(['th', 'td'], recursive=False)]
+
+
+def _procedure_index(values):
+    for idx, candidate in enumerate(values):
+        if PROCEDURE.search(candidate):
+            return idx
+    return None
+
+
+def _extract_table(table):
+    """Align columns on the actual procedure number, not fragile cell counts.
+
+    SICOP sometimes adds an unnamed icon/action column to the header or to
+    data rows. Anchoring on a procedure ID avoids shifting all columns when
+    these decorative cells appear. The canonical 15-column report order is a
+    fallback when the visible header has been split into multiple rows.
+    """
+    trs = table.find_all('tr')
+    header_cells = None
+    header_procedure_index = None
+    for tr in trs:
+        cells = _cells(tr)
+        keys = [normalize(v) for v in cells]
+        try:
+            idx = next(i for i, k in enumerate(keys) if k in PROCEDURE_HEADERS)
+        except StopIteration:
+            continue
+        # Don't identify a floating help/search table as the report table.
+        if len(cells) >= 8:
+            header_cells, header_procedure_index = cells, idx
+            break
+
+    found = []
+    for tr in trs:
+        vals = _cells(tr)
+        if len(vals) < 10:
+            continue
+        proc_idx = _procedure_index(vals)
+        if proc_idx is None:
+            continue
+        # Prefer the named header, regardless of the number of decorative TDs.
+        if header_cells is not None:
+            offset = proc_idx - header_procedure_index
+            record = {name: vals[i + offset] for i, name in enumerate(header_cells)
+                      if normalize(name) not in ('', 'image')
+                      and 0 <= i + offset < len(vals)}
+            if not any(PROCEDURE.search(record.get(k, '')) for k in header_cells
+                       if normalize(k) in PROCEDURE_HEADERS):
+                continue
+            # Header includes controls but data doesn't (or vice versa):
+            # use the fixed report column order if critical names are missing.
+            if any(normalize(k) == 'institucion' for k in record) and any(
+                    normalize(k) == 'descripcion' for k in record):
+                found.append(record)
+                continue
+        # In some SICOP variants headings are nested/split into another row.
+        # Public report columns are fixed relative to the procedure number.
+        start = proc_idx - 2  # No., Descripción, Número procedimiento
+        if start >= 0 and len(vals) - start >= len(REPORT_HEADERS) - 1:
+            record = dict(zip(REPORT_HEADERS, vals[start:start + len(REPORT_HEADERS)]))
+            if PROCEDURE.search(record['Número procedimiento']):
+                found.append(record)
+    return found
+
+
 def parse_page(html):
     soup = BeautifulSoup(html, 'lxml')
     page_text = soup.get_text(' ', strip=True)
-    if ('no fue posible acceder' in normalize(page_text).replace('_', ' ')
-            or 'id de soporte' in normalize(page_text).replace('_', ' ')):
-        raise SICOPSourceError('SICOP devolvió una página de error en lugar de resultados.')
+    normalized_text = normalize(page_text).replace('_', ' ')
+    if ('no fue posible acceder' in normalized_text or
+            'id de soporte' in normalized_text or
+            'access denied' in page_text.lower()):
+        raise SICOPSourceError(
+            'SICOP devolvió una página de bloqueo/error (ID de soporte). '
+            'No se importaron datos; revisá el acceso desde Render.')
 
-    # SICOP displays: 3867 resultados [ 4 de 387 páginas ]
-    total_match = re.search(r'([\d.,\s]+)\s+resultados\s*\[\s*(\d+)\s+de\s+(\d+)\s+p[aá]ginas?\s*\]',
-                            page_text, re.IGNORECASE)
-    pages = page_no = total = None
-    if total_match:
-        total = int(re.sub(r'\D', '', total_match.group(1)))
-        page_no = int(total_match.group(2))
-        pages = int(total_match.group(3))
-    elif re.search(r'\b0\s+resultados\b', page_text, re.IGNORECASE):
-        total, pages = 0, 0
+    match = PAGE_META.search(page_text)
+    page_no = pages = total = None
+    if match:
+        total = int(re.sub(r'\D', '', match.group(1)))
+        page_no = int(match.group(2))
+        pages = int(match.group(3))
+    elif re.search(r'\b0\s+resultados\b', page_text, re.I):
+        total = pages = 0
 
-    headers = records = None
-    for table in soup.find_all('table'):
-        trs = table.find_all('tr')
-        for idx, tr in enumerate(trs[:4]):
-            cells = tr.find_all(['th', 'td'], recursive=False)
-            candidate = [cell.get_text(' ', strip=True) for cell in cells]
-            keys = [normalize(col) for col in candidate]
-            if not any(key in ('numero_procedimiento', 'numero_de_procedimiento', 'procedure_number') for key in keys):
-                continue
-            headers = candidate
-            records = []
-            for row in trs[idx+1:]:
-                data = row.find_all('td', recursive=False)
-                if len(data) != len(headers):
-                    continue
-                vals = [cell.get_text(' ', strip=True) for cell in data]
-                r = dict(zip(headers, vals))
-                if any(r.get(key, '') for key in ('Número procedimiento', 'Numero procedimiento', 'procedure_number')):
-                    records.append(r)
-                else:
-                    # Alternate display titles are also accepted.
-                    for key, value in zip(keys, vals):
-                        if key in ('numero_procedimiento', 'numero_de_procedimiento', 'procedure_number') and value:
-                            records.append(r)
-                            break
-            break
-        if headers is not None:
-            break
-    if records is None:
-        if total == 0:
-            records = []
-        else:
-            raise SICOPSourceError('No se encontró una tabla válida de procedimientos en SICOP.')
-    if total is not None and total > 0 and not records:
-        raise SICOPSourceError('SICOP informa resultados pero devolvió una tabla vacía.')
-
+    # A page may contain several layout tables; choose the actual result table.
+    rows = max((_extract_table(t) for t in soup.find_all('table')),
+               key=len, default=[])
+    if total is not None and total > 0 and not rows:
+        raise SICOPSourceError(
+            f'SICOP indicó {total:,} resultados, pero no se pudieron leer '
+            'las filas de su HTML. Puede haber cambiado la tabla o la '
+            'respuesta estar incompleta; no se avanzó el cursor.')
+    if total is None and not rows:
+        raise SICOPSourceError(
+            'SICOP no entregó una tabla válida de procedimientos ni '
+            'un total de resultados verificable.')
     ids = []
-    for r in records:
-        nr = {normalize(k): str(v) for k,v in r.items()}
-        ids.append('|'.join((nr.get('numero_procedimiento') or nr.get('numero_de_procedimiento') or nr.get('procedure_number') or '',
-                             nr.get('partida', ''), nr.get('numero_de_linea') or nr.get('numero_linea', ''),
-                             nr.get('adjudicatario', ''), nr.get('estado_de_procedimiento', ''))))
+    for row in rows:
+        normalized = {normalize(k): str(v) for k, v in row.items()}
+        ids.append('|'.join((normalized.get('numero_procedimiento') or
+                             normalized.get('numero_de_procedimiento') or '',
+                             normalized.get('partida', ''),
+                             normalized.get('numero_de_linea', ''),
+                             normalized.get('adjudicatario', ''),
+                             normalized.get('estado_de_procedimiento', ''))))
     signature = hashlib.sha256('\n'.join(ids).encode('utf-8')).hexdigest()
-    return SourcePage(records, page_no, pages, total, signature)
+    return SourcePage(rows, page_no, pages, total, signature)
 
 
 def paged_url(url, page_number):
     split = urlsplit(url)
-    if split.scheme not in ('http','https'):
+    if split.scheme not in ('http', 'https'):
         raise SICOPSourceError('La URL de SICOP debe utilizar http o https.')
-    params = [(k,v) for k,v in parse_qsl(split.query, keep_blank_values=True) if k!='page_no']
+    params = [(k, v) for k, v in parse_qsl(split.query, keep_blank_values=True)
+              if k != 'page_no']
     params.append(('page_no', str(page_number)))
-    return urlunsplit((split.scheme,split.netloc,split.path,urlencode(params),split.fragment))
+    return urlunsplit((split.scheme, split.netloc, split.path,
+                       urlencode(params), split.fragment))
 
 
 def make_session():
     s = requests.Session()
-    s.headers.update({'User-Agent': 'Mozilla/5.0 (compatible; SICOP-Opportunity-Hub/3.0)',
-                      'Accept': 'text/html,application/xhtml+xml'})
+    s.headers.update({
+        'User-Agent': 'Mozilla/5.0 (compatible; SICOP-Opportunity-Hub/3.1)',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'es-CR,es;q=0.9',
+    })
     retry = Retry(total=2, connect=2, read=2, backoff_factor=0.5,
-                  status_forcelist=[429, 500, 502, 503, 504], allowed_methods=['GET'])
+                  status_forcelist=[429, 500, 502, 503, 504],
+                  allowed_methods=['GET'])
     s.mount('https://', HTTPAdapter(max_retries=retry))
     s.mount('http://', HTTPAdapter(max_retries=retry))
     return s
@@ -123,6 +197,18 @@ def get_page(session, url, number):
     try:
         response = session.get(paged_url(url, number), timeout=(8, 18))
         response.raise_for_status()
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else '?'
+        raise SICOPSourceError(
+            f'SICOP respondió HTTP {status} en la página {number}. '
+            'Si bloquea a Render, debe resolverse con SICOP o utilizar '
+            'el CSV oficial; la paginación no elimina el bloqueo.') from exc
     except requests.RequestException as exc:
-        raise SICOPSourceError(f'Error de conexión con SICOP en página {number}: {exc}') from exc
-    return parse_page(response.text)
+        raise SICOPSourceError(
+            f'Error de conexión con SICOP en página {number}: {exc}') from exc
+    page = parse_page(response.text)
+    if page.page_number is not None and page.page_number != number:
+        raise SICOPSourceError(
+            f'SICOP respondió página {page.page_number} cuando se pidió '
+            f'la {number}. No se avanzó para evitar datos repetidos.')
+    return page

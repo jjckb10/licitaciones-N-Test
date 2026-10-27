@@ -50,3 +50,49 @@ def test_parser_rejects_irrelevant_html():
 
 def test_normalize_preserves_accented_column_meaning():
     assert normalize('Número de línea') == 'numero_de_linea'
+
+
+def test_parser_accepts_extra_sort_icon_header_cell():
+    """SICOP may have one extra header cell for sort/action controls."""
+    html = fixture_page(count=2)
+    html = html.replace('<th>No.</th>', '<th>Icono</th><th>No.</th>')
+    page = parse_page(html)
+    assert len(page.rows) == 2
+    assert page.rows[0]['Número procedimiento'] == '2026LD-000001-0000000001'
+    assert page.rows[0]['Institución'] == 'Municipalidad'
+
+
+def test_parser_accepts_extra_leading_data_cell():
+    html = fixture_page(count=2).replace(
+        '<tr><td>1</td>', '<tr><td><img src="sort.png"></td><td>1</td>')
+    page = parse_page(html)
+    assert len(page.rows) == 2
+    assert page.rows[0]['Descripción'] == 'Compra número 1'
+
+
+def test_parser_falls_back_when_header_is_split():
+    html = fixture_page(count=2).replace(
+        '<th>Número procedimiento</th>', '<th>Número</th><th>procedimiento</th>')
+    # The row still carries the report's normal 15 logical columns.
+    page = parse_page(html)
+    assert len(page.rows) == 2
+    assert page.rows[0]['Número procedimiento'].startswith('2026LD-')
+
+
+def test_parser_rejects_report_count_without_rows():
+    with pytest.raises(SICOPSourceError, match='no se pudieron leer'):
+        parse_page('<html><body>Datos abiertos concursos 23 resultados [ 1 de 3 páginas ]'
+                   '<table><tr><th>Sin datos</th></tr></table></body></html>')
+
+
+def test_get_page_rejects_wrong_page(monkeypatch):
+    from app.sicop_source import get_page
+    class FakeResponse:
+        text = fixture_page(current=1)
+        def raise_for_status(self):
+            return None
+    class FakeSession:
+        def get(self, *args, **kwargs):
+            return FakeResponse()
+    with pytest.raises(SICOPSourceError, match='cuando se pidió la 2'):
+        get_page(FakeSession(), 'https://www.sicop.go.cr/reporte', 2)
