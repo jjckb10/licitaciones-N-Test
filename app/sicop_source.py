@@ -6,6 +6,8 @@ malformed or repeated page into a successful completed synchronization.
 """
 from dataclasses import dataclass
 import hashlib
+import json
+import time
 import re
 import unicodedata
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -154,16 +156,18 @@ def parse_page(html):
         raise SICOPSourceError(
             'SICOP no entregó una tabla válida de procedimientos ni '
             'un total de resultados verificable.')
-    ids = []
-    for row in rows:
-        normalized = {normalize(k): str(v) for k, v in row.items()}
-        ids.append('|'.join((normalized.get('numero_procedimiento') or
-                             normalized.get('numero_de_procedimiento') or '',
-                             normalized.get('partida', ''),
-                             normalized.get('numero_de_linea', ''),
-                             normalized.get('adjudicatario', ''),
-                             normalized.get('estado_de_procedimiento', ''))))
-    signature = hashlib.sha256('\n'.join(ids).encode('utf-8')).hexdigest()
+    # Hash the *entire business content*, not only tender identifiers.
+    # Adjacent pages can legitimately contain the same procedure/partida/linea
+    # while differing in description, amount, currency or other fields.
+    # The visible "No." is a display index and must not affect the fingerprint.
+    canonical_rows = [
+        {normalize(k): str(v).strip() for k, v in row.items()
+         if normalize(k) not in ('no', 'n', 'numero')}
+        for row in rows
+    ]
+    payload = json.dumps(canonical_rows, ensure_ascii=False, sort_keys=True,
+                         separators=(',', ':'))
+    signature = hashlib.sha256(payload.encode('utf-8')).hexdigest()
     return SourcePage(rows, page_no, pages, total, signature)
 
 
@@ -193,22 +197,62 @@ def make_session():
     return s
 
 
-def get_page(session, url, number):
-    try:
-        response = session.get(paged_url(url, number), timeout=(8, 18))
-        response.raise_for_status()
-    except requests.HTTPError as exc:
-        status = exc.response.status_code if exc.response is not None else '?'
-        raise SICOPSourceError(
-            f'SICOP respondió HTTP {status} en la página {number}. '
-            'Si bloquea a Render, debe resolverse con SICOP o utilizar '
-            'el CSV oficial; la paginación no elimina el bloqueo.') from exc
-    except requests.RequestException as exc:
-        raise SICOPSourceError(
-            f'Error de conexión con SICOP en página {number}: {exc}') from exc
-    page = parse_page(response.text)
-    if page.page_number is not None and page.page_number != number:
-        raise SICOPSourceError(
-            f'SICOP respondió página {page.page_number} cuando se pidió '
-            f'la {number}. No se avanzó para evitar datos repetidos.')
-    return page
+def _cache_busted_url(url, attempt):
+    """Retry the *same* page without reusing a shared intermediary cache.
+
+    Extra parameter is only used after detecting an actual repetition. SICOP
+    may disregard it; therefore a retry is never deemed successful unless the
+    returned rows change and the reported page number agrees.
+    """
+    if not attempt:
+        return url
+    parts = urlsplit(url)
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    params.append(('_sicop_retry', f'{time.time_ns()}-{attempt}'))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path,
+                       urlencode(params), parts.fragment))
+
+
+def get_page(session, url, number, previous_signature=None):
+    """Retrieve a page; retry actual duplicates twice, never silently skip.
+
+    The caller supplies the preceding page's content digest when available.
+    A real HTML problem or a server that ignores page_no is reported plainly.
+    """
+    for attempt in range(3):
+        if attempt:
+            time.sleep(attempt)  # gentler retry; don't hammer SICOP
+        target = _cache_busted_url(paged_url(url, number), attempt)
+        try:
+            kwargs = {'timeout': (8, 18)}
+            if attempt:
+                kwargs['headers'] = {'Cache-Control': 'no-cache, no-store',
+                                     'Pragma': 'no-cache'}
+            response = session.get(target, **kwargs)
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else '?'
+            raise SICOPSourceError(
+                f'SICOP respondió HTTP {status} en la página {number}. '
+                'Si bloquea a Render, debe resolverse con SICOP o utilizar '
+                'el CSV oficial; la paginación no elimina el bloqueo.') from exc
+        except requests.RequestException as exc:
+            raise SICOPSourceError(
+                f'Error de conexión con SICOP en página {number}: {exc}') from exc
+
+        page = parse_page(response.text)
+        if page.page_number is not None and page.page_number != number:
+            raise SICOPSourceError(
+                f'SICOP respondió página {page.page_number} cuando se pidió '
+                f'la {number}. No se avanzó para evitar datos repetidos.')
+        if not page.rows or previous_signature is None or page.signature != previous_signature:
+            return page
+        if attempt == 2:
+            raise SICOPSourceError(
+                f'La página {number} contiene exactamente los mismos datos '
+                'que la página anterior, incluso tras 3 consultas. '
+                f'SICOP indica {page.total_results if page.total_results is not None else "?"} '
+                'resultados. Se guardó el avance anterior; comprobá la '
+                'paginación desde un navegador o importá el CSV oficial. '
+                'No se omiten páginas ni se inventan registros.')
+    raise SICOPSourceError('No se pudo verificar la página de SICOP.')

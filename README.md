@@ -88,3 +88,11 @@ La corrección evita contar como éxito una respuesta de error, un bloqueo HTTP
 SICOP ni comprueba disponibilidad desde Render:** si el servidor oficial
 bloquea accesos automatizados, usar su descarga oficial CSV sigue siendo la
 alternativa soportada, sin borrar PostgreSQL.
+
+### Ajuste de robustez del recorrido (octubre de 2026)
+
+Las firmas de páginas ahora se calculan sobre todas las columnas de contenido (sin el número de fila visible), para evitar confundir dos páginas legítimas con registros idénticamente identificados. Una página verdaderamente repetida provoca reintentos limitados y un error seguro, en lugar de saltarse datos. Opcionalmente, `SICOP_PAGE_DELAY_SECONDS` agrega pausa entre peticiones. Ver `README_RENDER.md`.
+
+### Cliente solicitante en el listado
+
+El primer campo visible identifica **Cliente / institución solicitante**, que corresponde a la institución pública que contrata (`Institución` en el reporte de SICOP). El adjudicatario sigue identificado por separado, como proveedor. Se mantiene el filtro por cliente y se aceptan alias de esa columna en importaciones CSV. No requiere migración de base de datos.
