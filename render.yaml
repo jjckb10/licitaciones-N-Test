@@ -1,11 +1,22 @@
+databases:
+  - name: sicop-hub-db
+    plan: free
+    databaseName: sicop_hub
+    user: sicop_hub
 services:
   - type: web
-    name: sicop-opportunity-hub
+    name: sicop-opportunity-hub-v2
     runtime: docker
     plan: free
     healthCheckPath: /health
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sicop-hub-db
+          property: connectionString
       - key: SECRET_KEY
+        generateValue: true
+      - key: REFRESH_TOKEN
         generateValue: true
       - key: ADMIN_PASSWORD_1
         sync: false
@@ -13,5 +24,3 @@ services:
         sync: false
       - key: USER_PASSWORD_1
         sync: false
-      - key: DATABASE_URL
-        value: sqlite:////tmp/sicop.db
