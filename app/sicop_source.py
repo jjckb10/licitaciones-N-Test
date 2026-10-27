@@ -56,9 +56,18 @@ PAGE_META = re.compile(
 
 
 def _cells(tr):
-    """Include both TD and TH: some report templates use either for rows."""
-    return [c.get_text(' ', strip=True).replace('\xa0', ' ').strip()
-            for c in tr.find_all(['th', 'td'], recursive=False)]
+    """Visible direct cells; remove *decorative* image-only cells only.
+
+    SICOP places sort icons in separate empty header cells. Those cannot be
+    counted as business columns. Real blank TDs must remain in place.
+    """
+    cells = []
+    for cell in tr.find_all(['th', 'td'], recursive=False):
+        value = cell.get_text(' ', strip=True).replace('\xa0', ' ').strip()
+        if cell.name == 'th' and not value:
+            continue  # sort/icon-only column before the actual column title
+        cells.append(value)
+    return cells
 
 
 def _procedure_index(values):
@@ -68,58 +77,61 @@ def _procedure_index(values):
     return None
 
 
-def _extract_table(table):
-    """Align columns on the actual procedure number, not fragile cell counts.
+def _column_headers(trs):
+    """Find a meaningful header, regardless of image-only THs between names."""
+    for tr in trs:
+        values = [v for v in _cells(tr) if v]  # empty sorting columns
+        keys = [normalize(v) for v in values]
+        if (any(x in PROCEDURE_HEADERS for x in keys)
+                and any(x in ('institucion', 'institucion_contratante', 'comprador',
+                              'entidad_contratante') for x in keys)
+                and any(x in ('descripcion', 'descripcion_del_procedimiento') for x in keys)):
+            return values
+    return None
 
-    SICOP sometimes adds an unnamed icon/action column to the header or to
-    data rows. Anchoring on a procedure ID avoids shifting all columns when
-    these decorative cells appear. The canonical 15-column report order is a
-    fallback when the visible header has been split into multiple rows.
+
+def _valid_record(record):
+    p = next((v for k, v in record.items() if normalize(k) in PROCEDURE_HEADERS), '')
+    return bool(PROCEDURE.search(p))
+
+
+def _extract_table(table):
+    """Map fields from semantic headings, never the decorative Image columns.
+
+    The actual report uses alternating image-only sort THs and text THs. A
+    header offset by those THs previously mapped procedure types as buyers.
+    Distinct text header cells now line up with the data cells; when the HTML
+    contains a leading icon TD, anchor on the procedure ID to calculate offset.
     """
     trs = table.find_all('tr')
-    header_cells = None
-    header_procedure_index = None
-    for tr in trs:
-        cells = _cells(tr)
-        keys = [normalize(v) for v in cells]
-        try:
-            idx = next(i for i, k in enumerate(keys) if k in PROCEDURE_HEADERS)
-        except StopIteration:
-            continue
-        # Don't identify a floating help/search table as the report table.
-        if len(cells) >= 8:
-            header_cells, header_procedure_index = cells, idx
-            break
-
+    headings = _column_headers(trs)
     found = []
     for tr in trs:
-        vals = _cells(tr)
-        if len(vals) < 10:
+        values = _cells(tr)
+        proc_index = _procedure_index(values)
+        if proc_index is None:
             continue
-        proc_idx = _procedure_index(vals)
-        if proc_idx is None:
-            continue
-        # Prefer the named header, regardless of the number of decorative TDs.
-        if header_cells is not None:
-            offset = proc_idx - header_procedure_index
-            record = {name: vals[i + offset] for i, name in enumerate(header_cells)
-                      if normalize(name) not in ('', 'image')
-                      and 0 <= i + offset < len(vals)}
-            if not any(PROCEDURE.search(record.get(k, '')) for k in header_cells
-                       if normalize(k) in PROCEDURE_HEADERS):
-                continue
-            # Header includes controls but data doesn't (or vice versa):
-            # use the fixed report column order if critical names are missing.
-            if any(normalize(k) == 'institucion' for k in record) and any(
-                    normalize(k) == 'descripcion' for k in record):
+        if headings is not None:
+            header_idx = next(i for i, h in enumerate(headings)
+                              if normalize(h) in PROCEDURE_HEADERS)
+            offset = proc_index - header_idx
+            record = {name: values[i + offset] for i, name in enumerate(headings)
+                      if name and 0 <= i + offset < len(values)}
+            if _valid_record(record):
                 found.append(record)
                 continue
-        # In some SICOP variants headings are nested/split into another row.
-        # Public report columns are fixed relative to the procedure number.
-        start = proc_idx - 2  # No., Descripción, Número procedimiento
-        if start >= 0 and len(vals) - start >= len(REPORT_HEADERS) - 1:
-            record = dict(zip(REPORT_HEADERS, vals[start:start + len(REPORT_HEADERS)]))
-            if PROCEDURE.search(record['Número procedimiento']):
+        # Fallback for split/unlabeled headings with standard 15 field order.
+        # Never infer a real institution from a procedure-type column.
+        start = proc_index - 2  # No., Descripción, Número procedimiento
+        if start >= 0 and len(values) - start >= len(REPORT_HEADERS):
+            record = dict(zip(REPORT_HEADERS, values[start:start + len(REPORT_HEADERS)]))
+            if _valid_record(record):
+                found.append(record)
+        elif start >= 0 and len(values) - start == len(REPORT_HEADERS) - 1:
+            # This shorter legacy variant omits "Tipo modalidad".
+            shorter = [h for h in REPORT_HEADERS if h != 'Tipo modalidad']
+            record = dict(zip(shorter, values[start:]))
+            if _valid_record(record):
                 found.append(record)
     return found
 

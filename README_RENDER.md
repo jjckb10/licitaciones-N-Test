@@ -1,4 +1,4 @@
-# Despliegue Render — SICOP Opportunity Hub V3
+# Despliegue Render — SICOP Opportunity Hub V4 — Noventiq
 
 Este proyecto usa **PostgreSQL** para persistencia, y `gunicorn` en Docker. El archivo `render.yaml` crea el servicio web y la base de datos en una instalación nueva.
 
@@ -60,3 +60,14 @@ Esta versión agrega `app/technology.py` y modifica `app/main.py` y `app/templat
 - La API acepta `?tech=noventiq` y `?tech=microsoft`, etc. La exportación CSV respeta la misma selección.
 - Las búsquedas solo abarcan lo guardado en la tabla `tenders`: no solucionan por sí solas errores de extracción del origen SICOP.
 - Para pruebas, ejecutá `pytest -q` con las dependencias del proyecto y `pytest` instalados.
+
+
+## V4: migración, extracción y actualización automática
+
+Las columnas `is_it`, `it_score`, `it_priority`, `it_labels` se agregan automáticamente sin borrar datos.
+El panel abre en `/?tech=noventiq`, usa las columnas nuevas para filtrar y muestra
+las descripciones resumidas, el cliente validado y la prioridad comercial.
+Para sincronización diaria desde GitHub Actions, configurar los secretos
+`SICOP_APP_URL` y `SICOP_REFRESH_TOKEN` y habilitar Actions. Ver `V4_DESPLIEGUE.md`.
+No confundir la institución con `Tipo Procedimiento`, ni el puntaje comercial
+con una aprobación automática de participación o disponibilidad de ofertas.

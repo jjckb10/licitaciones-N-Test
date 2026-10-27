@@ -1,4 +1,20 @@
-# SICOP Opportunity Hub V3
+# SICOP Opportunity Hub V4 — Noventiq
+
+
+## Radar comercial Noventiq — novedades V4
+
+- Clasificación comercial **durante la sincronización**: se almacenan *todas* las contrataciones del reporte, identificando cuáles son TI (`is_it`), puntuación heurística (`it_score`: 0–100), prioridad y áreas de tecnología (`it_labels`). No se pierden los registros que no encajan.
+- El dashboard abre automáticamente con `tech=noventiq`: Microsoft, Azure, AWS, Google Cloud, licencias, hardware, ciberseguridad, software, soporte e infraestructura.
+- Listado con campos diferenciados: **cliente / institución solicitante**, **breve descripción de qué se contrata**, prioridad, área, procedimiento, estado, tipo de licitación, monto y adjudicatario.
+- Corrige un desplazamiento de columnas: los encabezados de ordenamiento con íconos de SICOP no se interpretan como campos comerciales. Una cadena como «LICITACIÓN REDUCIDA» no puede presentarse como cliente.
+- Migración **no destructiva** de `tenders` con cuatro columnas nuevas. Reclasificación progresiva del histórico (500 filas por petición) para evitar bloqueos largos de Render.
+- Filtro por prioridad y exportación CSV/API usando los mismos criterios; orden por relevancia y fecha de última revisión.
+- Flujo opcional en `.github/workflows/sicop-sync.yml` que llama a Render a diario a las **07:15, hora Costa Rica**, siempre que se configuren sus dos secretos. No activa nada por sí solo.
+
+**Consulta [V4_DESPLIEGUE.md](V4_DESPLIEGUE.md) para actualizar el sistema y configurar la tarea diaria.**
+
+**Nota crítica:** ni el filtro ni la nueva tabla son una fuente adicional de licitaciones. La paginación sigue dependiendo de lo que entregue SICOP; si repite una página, el proceso se detiene sin reportar completitud. La información del reporte no garantiza que el plazo para ofertar siga vigente.
+
 
 Panel interno para consultar la tabla pública de **Datos abiertos concursos** de SICOP, conservarla en PostgreSQL, importarla desde archivos CSV y exportarla sin un límite artificial de registros.
 

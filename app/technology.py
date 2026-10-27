@@ -146,3 +146,52 @@ def matched_areas(description, object_classification=''):
     document = f'{description or ""} {object_classification or ""}'.lower()
     return [AREA_LABELS[key] for key, terms in TECH_AREAS.items()
             if any(phrase.lower() in document for phrase in terms)]
+
+# Transparent, rules-based commercial prioritization; no automatic claim of
+# eligibility, real-time opening, budget, or deadline is made.
+AREA_WEIGHTS = {
+    'microsoft': 32, 'google': 29, 'aws': 30, 'cloud': 22,
+    'licensing': 27, 'cybersecurity': 25, 'hardware': 21,
+    'networking': 17, 'software': 19, 'it_services': 17,
+}
+
+
+def classify_opportunity(description, object_classification=''):
+    """Classify during ingestion as well as for backfills and CSV uploads.
+
+    Returns a stable serializable dict. Words come only from the procurement
+    object's description, never the institution/awardee, to reduce false hits.
+    """
+    labels = matched_areas(description, object_classification)
+    raw = f'{description or ""} {object_classification or ""}'.lower()
+    keys = [key for key, terms in TECH_AREAS.items()
+            if any(word.lower() in raw for word in terms)]
+    if not keys:
+        return {'is_it': 0, 'it_score': 0, 'it_priority': 'No aplica',
+                'it_labels': [], 'it_reasons': []}
+    # Cap accumulating broad keyword matches; a high score requires coverage
+    # of at least two commercial areas, or highly distinctive platform terms.
+    weights = sorted((AREA_WEIGHTS[k] for k in keys), reverse=True)
+    score = min(100, 18 + weights[0] + sum(weights[1:3]) // 2)
+    priority = ('Alta' if score >= 62 else
+                'Media' if score >= 37 else 'Baja')
+    return {'is_it': 1, 'it_score': score, 'it_priority': priority,
+            'it_labels': labels, 'it_reasons': keys}
+
+
+def classified_sql(selected):
+    """Use automatic classification persisted during sync, not ad hoc LIKEs.
+
+    Like technology_sql, this returns only a safe SQL predicate and bindings.
+    V3 still has technology_sql for backward compatibility with existing tests.
+    """
+    import json
+    selected = selected_filter(selected)
+    if selected == 'all':
+        return '', {}
+    if selected == 'noventiq':
+        return 'is_it = 1', {}
+    label = AREA_LABELS[selected]
+    return 'COALESCE(it_labels, \'\') LIKE :tech_area', {
+        'tech_area': '%' + json.dumps(label, ensure_ascii=False) + '%',
+    }
