@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: sicop-opportunity-hub
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_PASSWORD_1
+        sync: false
+      - key: ADMIN_PASSWORD_2
+        sync: false
+      - key: USER_PASSWORD_1
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:////tmp/sicop.db
