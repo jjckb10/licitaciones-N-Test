@@ -1,1 +1,98 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SICOP Hub</title><style>:root{font-family:Segoe UI,Arial;color:#172033;background:#f4f7fb}body{margin:0}.top{background:#0b3a66;color:#fff;padding:18px 4vw;display:flex;justify-content:space-between}.top a{color:#fff}.wrap{padding:24px 4vw}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card,.panel{background:#fff;border:1px solid #dce4ee;border-radius:12px;padding:16px;box-shadow:0 2px 8px #10203012}.n{font-size:30px;font-weight:700}.filters{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px}.admin{display:flex;gap:10px;align-items:center;flex-wrap:wrap}input,select,button{padding:10px;border:1px solid #bec9d6;border-radius:8px}button{background:#0b65c2;color:#fff;border:0}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px;border-bottom:1px solid #e5eaf0;vertical-align:top}th{background:#f7f9fc;position:sticky;top:0}.scroll{overflow:auto;max-height:65vh}.badge{padding:4px 8px;border-radius:99px;background:#e8f1fb}.msg{padding:12px;border-radius:8px}.ok{background:#e5f7ec}.error{background:#fdeaea}@media(max-width:800px){.cards,.filters{grid-template-columns:1fr}.hide-sm{display:none}}</style></head><body><div class="top"><div><b>SICOP Opportunity Hub V2</b><div>PostgreSQL</div></div><div>{{u.email}} · <a href="/logout">Salir</a></div></div><main class="wrap">{% for cat,msg in get_flashed_messages(with_categories=true) %}<div class="msg {{cat}}">{{msg}}</div>{% endfor %}<div class="cards"><div class="card"><div>Líneas almacenadas</div><div class="n">{{stats.total}}</div></div><div class="card"><div>Instituciones</div><div class="n">{{stats.institutions}}</div></div><div class="card"><div>Fuente</div><div class="n" style="font-size:20px">SICOP</div></div></div><section class="panel" style="margin-top:16px"><form class="filters"><input name="q" value="{{q}}" placeholder="Buscar descripción o número"><select name="status"><option value="">Todos los estados</option>{% for x in statuses %}<option {% if x==status %}selected{% endif %}>{{x}}</option>{% endfor %}</select><select name="institution"><option value="">Todas las instituciones</option>{% for x in institutions %}<option {% if x==inst %}selected{% endif %}>{{x}}</option>{% endfor %}</select><button>Filtrar</button></form></section>{% if u.admin %}<section class="panel admin" style="margin-top:16px"><form method="post" action="/admin/sync"><button>Sincronizar</button></form><form method="post" action="/admin/import" enctype="multipart/form-data"><input type="file" name="file" accept=".csv" required><button>Importar CSV histórico</button></form></section>{% endif %}<section class="panel scroll" style="margin-top:16px"><table><thead><tr><th>Procedimiento</th><th>Descripción</th><th>Institución</th><th>Estado</th><th class="hide-sm">Monto</th><th class="hide-sm">Adjudicatario</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.procedure_number}}</td><td>{{r.description}}</td><td>{{r.institution}}</td><td><span class="badge">{{r.status}}</span></td><td class="hide-sm">{{r.currency}} {{'{:,.2f}'.format(r.amount) if r.amount else ''}}</td><td class="hide-sm">{{r.awardee}}</td></tr>{% else %}<tr><td colspan="6">No hay datos. Importa el CSV oficial o ejecuta la sincronización.</td></tr>{% endfor %}</tbody></table></section></main></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SICOP Opportunity Hub</title>
+<style>
+:root{font-family:Segoe UI,Arial,sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}a{color:#0966ba;text-decoration:none}a:hover{text-decoration:underline}.top{background:#0b3a66;color:white;padding:17px 4vw;display:flex;justify-content:space-between;gap:15px;align-items:center}.top a{color:white}.wrap{max-width:1560px;margin:auto;padding:22px 4vw 45px}.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.card,.panel{background:#fff;border:1px solid #dce4ee;border-radius:12px;padding:17px;box-shadow:0 2px 8px #10203012}.n{font-size:30px;font-weight:700;margin-top:5px}.muted{color:#657389;font-size:.88rem}.filters{display:grid;grid-template-columns:minmax(150px,2fr) 1fr 1fr 120px auto;gap:10px;align-items:center}.admin,.toolrow,.pagination{display:flex;gap:10px;align-items:center;flex-wrap:wrap}input,select,button,.btn{padding:10px 11px;border:1px solid #bec9d6;border-radius:8px;font:inherit;max-width:100%;background:white;color:#172033}.btn,button{display:inline-block;background:#0b65c2;color:white;border:1px solid #0b65c2;cursor:pointer;text-decoration:none}.btn.secondary,button.secondary{background:white;color:#0b65c2;border-color:#9db9d6}.btn:hover{text-decoration:none;opacity:.9}.panel h2{font-size:1.15rem;margin:0 0 8px}.panel p{margin:5px 0}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:11px;border-bottom:1px solid #e5eaf0;vertical-align:top}th{background:#f7f9fc;position:sticky;top:0}tr:hover td{background:#f8fbfe}.scroll{overflow:auto;max-height:67vh}.badge{padding:4px 8px;border-radius:99px;background:#e8f1fb;display:inline-block;white-space:nowrap}.msg{padding:12px;border-radius:8px;margin-bottom:12px}.ok{background:#e5f7ec}.error{background:#fdeaea}.pagination{justify-content:space-between;margin:15px 0}.pages{display:flex;gap:5px;flex-wrap:wrap}.pages a,.pages span{padding:7px 11px;border-radius:7px;border:1px solid #cad7e5}.pages .active{background:#0b65c2;color:white}.small{font-size:13px}.source{font-size:.85rem;color:#5c6879}.info{background:#eff5fc;border-radius:8px;padding:12px}form{margin:0}.download{margin-left:auto}@media(max-width:1050px){.filters{grid-template-columns:1fr 1fr}.filters input:first-child{grid-column:span 2}}@media(max-width:740px){.cards,.filters{grid-template-columns:1fr}.filters input:first-child{grid-column:auto}.top{display:block}.hide-sm{display:none}.n{font-size:25px}}
+</style>
+</head>
+<body>
+<header class="top"><div><strong>SICOP Opportunity Hub V3</strong><div class="small">Base de datos de concursos y adjudicaciones · PostgreSQL</div></div><div class="small">{{u.email}} · <a href="{{url_for('logout')}}">Salir</a></div></header>
+<main class="wrap">
+{% for cat, msg in get_flashed_messages(with_categories=true) %}<div class="msg {{cat}}">{{msg}}</div>{% endfor %}
+<div class="cards">
+ <section class="card"><div>Filas almacenadas</div><div class="n">{{'{:,}'.format(stats.total)}}</div><div class="muted">Total en la base de datos</div></section>
+ <section class="card"><div>Instituciones</div><div class="n">{{'{:,}'.format(stats.institutions)}}</div><div class="muted">Instituciones identificadas</div></section>
+ <section class="card"><div>Coincidencias</div><div class="n">{{'{:,}'.format(matched)}}</div><div class="muted">Con los filtros actuales</div></section>
+</div>
+<section class="panel" style="margin-top:15px">
+ <h2>Buscar y filtrar registros</h2>
+ <form class="filters" method="get" action="{{url_for('index')}}">
+  <input aria-label="Buscar" name="q" value="{{q}}" placeholder="Descripción, procedimiento o institución">
+  <select aria-label="Estado" name="status"><option value="">Todos los estados</option>{% for x in statuses %}<option value="{{x}}" {% if x == status %}selected{% endif %}>{{x}}</option>{% endfor %}</select>
+  <select aria-label="Institución" name="institution"><option value="">Todas las instituciones</option>{% for x in institutions %}<option value="{{x}}" {% if x == inst %}selected{% endif %}>{{x}}</option>{% endfor %}</select>
+  <select aria-label="Filas por página" name="per_page">{% for n in [25,50,100] %}<option value="{{n}}" {% if per_page == n %}selected{% endif %}>{{n}} por página</option>{% endfor %}</select>
+  <button>Filtrar</button>
+ </form>
+ <div class="toolrow" style="margin-top:12px"><span class="muted">Exporta todos los registros filtrados, no solo la página visible.</span><a class="btn secondary download" href="{{url_for('export_csv',q=q,status=status,institution=inst)}}">Descargar CSV completo</a></div>
+</section>
+{% if u.admin %}
+<section class="panel" style="margin-top:15px">
+ <h2>Sincronización SICOP</h2>
+ <p class="muted">Se recorren las páginas del reporte oficial por bloques para no exceder el tiempo de Render. Los avances quedan guardados en PostgreSQL.</p>
+ <div class="info small">
+   {% if sync_state.next_page > 1 %}<strong>En progreso:</strong> siguiente página {{sync_state.next_page}}{% if sync_state.total_pages %} de {{sync_state.total_pages}}{% endif %}.
+   {% else %}<strong>Listo para iniciar un recorrido desde la página 1.</strong>{% endif %}
+   {% if sync_state.total_results is not none %} · Resultados informados por SICOP: {{'{:,}'.format(sync_state.total_results)}}{% endif %}
+   {% if last_run %}<p>Último intento: <strong>{{last_run.status}}</strong> · {{last_run.imported}} filas · {{last_run.finished_at}}. {{last_run.message}}</p>{% endif %}
+ </div>
+ <div class="admin" style="margin-top:12px">
+  <button id="sync-all" type="button">Sincronizar todas las páginas</button>
+  <form method="post" action="{{url_for('manual_sync')}}"><button class="secondary">Solo siguiente bloque</button></form>
+  <form method="post" action="{{url_for('reset_sync')}}"><button class="secondary" onclick="return confirm('¿Reiniciar en página 1? Los registros guardados se conservarán.')">Reiniciar recorrido</button></form>
+ </div>
+ <p id="sync-progress" class="muted" role="status" aria-live="polite">Para el recorrido completo, mantené esta pestaña abierta. Si se interrumpe, el avance queda guardado.</p>
+ <div class="admin" style="margin-top:12px"><form method="post" action="{{url_for('upload_csv')}}" enctype="multipart/form-data" class="admin"><input type="file" name="file" accept=".csv,text/csv" required><button class="secondary">Importar CSV oficial</button></form></div>
+ <p class="source">La tabla «Datos abiertos concursos» no equivale necesariamente a todas las licitaciones abiertas: contiene campos de adjudicación y depende de los filtros y datos publicados por SICOP.</p>
+</section>
+{% endif %}
+<section class="panel" style="margin-top:15px">
+ <div class="pagination"><strong>{{'{:,}'.format(matched)}} registros encontrados</strong><span class="muted">Página {{page}} de {{pages}} ({{per_page}} registros por página)</span></div>
+ <div class="scroll"><table><thead><tr><th>Procedimiento</th><th>Descripción</th><th>Institución</th><th>Estado</th><th class="hide-sm">Monto</th><th class="hide-sm">Adjudicatario</th></tr></thead><tbody>
+ {% for r in rows %}<tr><td style="min-width:175px">{{r.procedure_number}}</td><td style="min-width:250px">{{r.description}}</td><td style="min-width:175px">{{r.institution}}</td><td><span class="badge">{{r.status or 'Sin dato'}}</span></td><td class="hide-sm">{{r.currency}} {{'{:,.2f}'.format(r.amount) if r.amount is not none else ''}}</td><td class="hide-sm">{{r.awardee}}</td></tr>
+ {% else %}<tr><td colspan="6">No hay registros para los filtros seleccionados. Revisá la sincronización o importá un CSV.</td></tr>{% endfor %}
+ </tbody></table></div>
+ <nav class="pagination" aria-label="Navegación de resultados"><div class="pages">
+  {% if page > 1 %}<a href="{{url_for('index',q=q,status=status,institution=inst,per_page=per_page,page=1)}}">Primera</a><a href="{{url_for('index',q=q,status=status,institution=inst,per_page=per_page,page=page-1)}}">Anterior</a>{% endif %}
+  {% for n in page_numbers %}{% if n == page %}<span class="active">{{n}}</span>{% else %}<a href="{{url_for('index',q=q,status=status,institution=inst,per_page=per_page,page=n)}}">{{n}}</a>{% endif %}{% endfor %}
+  {% if page < pages %}<a href="{{url_for('index',q=q,status=status,institution=inst,per_page=per_page,page=page+1)}}">Siguiente</a><a href="{{url_for('index',q=q,status=status,institution=inst,per_page=per_page,page=pages)}}">Última</a>{% endif %}
+ </div></nav>
+</section>
+</main>
+{% if u.admin %}
+<script>
+(() => {
+  const button = document.getElementById('sync-all');
+  const output = document.getElementById('sync-progress');
+  button.addEventListener('click', async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Sincronizando…';
+    let blocks = 0, totalProcessed = 0;
+    try {
+      while (blocks < 1000) {
+        const response = await fetch("{{url_for('api_manual_sync')}}", {
+          method: 'POST', credentials: 'same-origin', headers: {'Accept': 'application/json'}
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || `Error HTTP ${response.status}`);
+        blocks += 1;
+        totalProcessed += data.processed || 0;
+        output.textContent = `Bloques: ${blocks} · Filas procesadas: ${totalProcessed} · ` +
+          (data.status === 'complete' ? 'Recorrido terminado.' : `Siguiente página: ${data.next_page} de ${data.total_pages || '?'}`);
+        if (data.status === 'complete') { window.location.reload(); return; }
+        if (!data.pages_processed) throw new Error('No se avanzó ninguna página. Verificá la conexión con SICOP.');
+      }
+      throw new Error('Se alcanzó el límite de bloques; podés continuar presionando el botón otra vez.');
+    } catch (error) {
+      output.textContent = `Sincronización pausada: ${error.message}. El avance anterior se conserva.`;
+      button.disabled = false;
+      button.textContent = 'Reanudar sincronización';
+    }
+  });
+})();
+</script>
+{% endif %}
+</body></html>

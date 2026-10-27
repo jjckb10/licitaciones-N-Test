@@ -24,3 +24,7 @@ services:
         sync: false
       - key: USER_PASSWORD_1
         sync: false
+      - key: SICOP_PAGES_PER_RUN
+        value: "20"
+      - key: SICOP_SYNC_MAX_SECONDS
+        value: "95"

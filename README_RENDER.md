@@ -1,21 +1,25 @@
-# Despliegue en Render
+# Despliegue Render — SICOP Opportunity Hub V3
 
-Usuarios permitidos:
-- juanjose.solanocamacho@noventiq.com — admin
-- jjckb@gmail.com — admin
-- alonso.fallasvargas@noventiq.com — usuario
+Este proyecto usa **PostgreSQL** para persistencia, y `gunicorn` en Docker. El archivo `render.yaml` crea el servicio web y la base de datos en una instalación nueva.
 
-## Variables secretas
-En Render define ADMIN_PASSWORD_1, ADMIN_PASSWORD_2 y USER_PASSWORD_1 con contraseñas fuertes. No las guardes en GitHub. SECRET_KEY se genera automáticamente con Blueprint.
+## Si ya tenés la app funcionando
 
-## Deploy
-1. Sube este contenido a un repositorio privado de GitHub.
-2. En Render crea un Blueprint y selecciona el repositorio. render.yaml configura el servicio.
-3. Render solicitará las tres variables de contraseña marcadas sync:false.
-4. Despliega y abre la URL que Render te asigne.
+1. No elimines la base de datos ni el servicio actual.
+2. Subí a GitHub los archivos actualizados y desplegá el último commit en Render.
+3. Conservá las variables existentes `DATABASE_URL`, `SECRET_KEY`, `REFRESH_TOKEN`, `ADMIN_PASSWORD_1`, `ADMIN_PASSWORD_2` y `USER_PASSWORD_1`.
+4. La tabla nueva `sync_state` se creará automáticamente. Los registros anteriores se conservan.
+5. Presioná «Sincronizar todas las páginas», manteniendo abierta la página hasta completar el recorrido.
+6. Si el origen responde con un error, revisá el mensaje y usá la importación de CSV oficial como alternativa.
 
-## Nota de persistencia
-El plan gratuito no debe considerarse almacenamiento persistente para SQLite. Esta configuración sirve para validar el MVP. Para conservar usuarios/datos entre recreaciones del servicio, conecta una base PostgreSQL externa/persistente y cambia DATABASE_URL.
+## Parámetros nuevos opcionales
 
-## Roles
-Admin puede sincronizar/importar SICOP. Usuario puede consultar y filtrar.
+- `SICOP_PAGES_PER_RUN=20` (cantidad máxima de páginas por llamada).
+- `SICOP_SYNC_MAX_SECONDS=95` (tiempo máximo de una llamada; debe ser menor al timeout de Gunicorn).
+
+### Para programar actualizaciones
+
+Invocá periódicamente `POST /tasks/refresh` con `Authorization: Bearer <REFRESH_TOKEN>`. Repite hasta obtener `"status":"complete"`. Un resultado `"partial"` significa que la tarea guardó datos pero todavía tiene páginas pendientes.
+
+### Advertencia sobre alcance
+
+La página «Datos abiertos concursos» no es un índice exhaustivo de procesos en recepción de ofertas. La nueva sincronización obtiene todas las páginas disponibles de **ese reporte**, no toda la información que existe en el sistema SICOP.
