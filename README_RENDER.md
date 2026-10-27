@@ -50,3 +50,13 @@ python -m pytest -q tests/test_sicop_source.py
 ## Campo «Cliente / institución solicitante»
 
 La tabla muestra primero la **entidad contratante** (el cliente que solicita el servicio). SICOP la identifica como `Institución`. También se aceptan nombres alternativos en CSV como `Entidad contratante`, `Institución contratante`, `Nombre de la institución`, `Comprador` o `Cliente`. **No confundir con `Adjudicatario`:** este último es el proveedor elegido, no el cliente. La información se guarda en la columna `institution` existente, sin modificar el esquema de PostgreSQL.
+
+## Nuevo filtro: oportunidades TI y perfil Noventiq
+
+Esta versión agrega `app/technology.py` y modifica `app/main.py` y `app/templates/index.html`.
+
+- **No necesita variables de entorno ni cambios de esquema PostgreSQL.**
+- Después del despliegue, el selector **Categoría tecnológica** incluye Noventiq, Microsoft, Google, AWS, cloud, licencias, ciberseguridad, hardware, redes, software y servicios TI.
+- La API acepta `?tech=noventiq` y `?tech=microsoft`, etc. La exportación CSV respeta la misma selección.
+- Las búsquedas solo abarcan lo guardado en la tabla `tenders`: no solucionan por sí solas errores de extracción del origen SICOP.
+- Para pruebas, ejecutá `pytest -q` con las dependencias del proyecto y `pytest` instalados.

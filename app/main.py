@@ -16,6 +16,8 @@ from sqlalchemy import create_engine, text
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.sicop_source import SICOPSourceError, get_page, make_session, normalize
+from app.technology import (TECH_FILTER_OPTIONS, matched_areas,
+                            selected_filter, technology_sql)
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'development-only-change-me')
@@ -370,6 +372,7 @@ def search_filter():
     q = request.args.get('q', '').strip()
     status = request.args.get('status', '').strip()
     institution = request.args.get('institution', '').strip()
+    tech = selected_filter(request.args.get('tech', 'all'))
     conditions, params = [], {}
     if q:
         conditions.append('''(LOWER(description) LIKE :q OR
@@ -382,8 +385,12 @@ def search_filter():
     if institution:
         conditions.append('institution=:institution')
         params['institution'] = institution
+    tech_where, tech_params = technology_sql(tech)
+    if tech_where:
+        conditions.append(tech_where)
+        params.update(tech_params)
     where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
-    return q, status, institution, where, params
+    return q, status, institution, tech, where, params
 
 
 def positive_int(value, default, max_value):
@@ -396,7 +403,7 @@ def positive_int(value, default, max_value):
 @app.get('/')
 @login_required
 def index():
-    q, status, institution, where, params = search_filter()
+    q, status, institution, tech, where, params = search_filter()
     per_page = positive_int(request.args.get('per_page'), 50, 100)
     requested_page = positive_int(request.args.get('page'), 1, 100000000)
     with engine.begin() as conn:
@@ -406,6 +413,8 @@ def index():
         rows = conn.execute(text('''SELECT * FROM tenders''' + where + '''
             ORDER BY last_seen DESC, id ASC LIMIT :limit OFFSET :offset'''),
             {**params, 'limit': per_page, 'offset': (page - 1) * per_page}).mappings().all()
+        rows = [dict(r, tech_areas=matched_areas(r['description'], r['object_classification']))
+                for r in rows]
         stats = conn.execute(text('''SELECT COUNT(*) AS total,
             COUNT(DISTINCT institution) AS institutions FROM tenders''')).mappings().one()
         statuses = [x[0] for x in conn.execute(text(
@@ -417,7 +426,8 @@ def index():
             ORDER BY id DESC LIMIT 1''')).mappings().first()
     return render_template('index.html', rows=rows, stats=stats, statuses=statuses,
                            institutions=institutions, u=current_user(), q=q,
-                           status=status, inst=institution, page=page, pages=pages,
+                           status=status, inst=institution, tech=tech,
+                           tech_filter_options=TECH_FILTER_OPTIONS, page=page, pages=pages,
                            matched=matched, per_page=per_page, sync_state=sync_state,
                            page_numbers=range(max(1, page-2), min(pages, page+2)+1),
                            last_run=last_run)
@@ -516,7 +526,7 @@ def scheduled_refresh():
 @app.get('/api/tenders')
 @login_required
 def api_tenders():
-    q, status, institution, where, params = search_filter()
+    q, status, institution, tech, where, params = search_filter()
     per_page = positive_int(request.args.get('per_page'), 100, 500)
     page = positive_int(request.args.get('page'), 1, 100000000)
     with engine.begin() as conn:
@@ -524,7 +534,8 @@ def api_tenders():
         rows = conn.execute(text('''SELECT * FROM tenders''' + where + '''
             ORDER BY last_seen DESC,id ASC LIMIT :limit OFFSET :offset'''),
             {**params, 'limit': per_page, 'offset': (page - 1) * per_page}).mappings().all()
-    return jsonify({'items': [dict(r) for r in rows], 'page': page,
+    return jsonify({'items': [dict(r, tech_areas=matched_areas(r['description'], r['object_classification']))
+                              for r in rows], 'tech': tech, 'page': page,
                     'per_page': per_page, 'total': total,
                     'total_pages': math.ceil(total / per_page)})
 
@@ -533,7 +544,7 @@ def api_tenders():
 @login_required
 def export_csv():
     """Stream all matching database rows without a LIMIT or memory spike."""
-    q, status, institution, where, params = search_filter()
+    q, status, institution, tech, where, params = search_filter()
     columns = ['id', 'procedure_number', 'description', 'institution',
                'procedure_type', 'modality', 'object_classification', 'item',
                'line_number', 'awardee', 'currency', 'amount', 'exchange_rate',

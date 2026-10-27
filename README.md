@@ -96,3 +96,11 @@ Las firmas de páginas ahora se calculan sobre todas las columnas de contenido (
 ### Cliente solicitante en el listado
 
 El primer campo visible identifica **Cliente / institución solicitante**, que corresponde a la institución pública que contrata (`Institución` en el reporte de SICOP). El adjudicatario sigue identificado por separado, como proveedor. Se mantiene el filtro por cliente y se aceptan alias de esa columna en importaciones CSV. No requiere migración de base de datos.
+
+## Filtros de oportunidades de tecnología (perfil Noventiq)
+
+En el buscador, usá **Categoría tecnológica** para escoger «Todas las oportunidades TI · perfil Noventiq» o una especialidad (Microsoft, Google, AWS, nube, licencias, ciberseguridad, hardware, redes, software y soporte TI). También hay un acceso directo **Ver solo oportunidades TI (Noventiq)**.
+
+El filtro funciona sobre **las filas ya almacenadas**, sin borrarlas ni alterar la base de datos. Se puede combinar con Estado, Cliente y búsqueda de texto; el filtro se conserva al paginar, al consultar `GET /api/tenders?tech=noventiq` y al usar `GET /export.csv?tech=noventiq`.
+
+El perfil es una **selección editorial de palabras clave** en el objeto/descripcion de la compra, no una clasificación oficial de SICOP ni una afirmación de que Noventiq pueda ofrecer cada producto. Requiere revisar condiciones, requisitos y fechas del cartel. La clasificación es aproximada: puede incluir resultados no aplicables u omitir títulos muy genéricos. Modificá las listas de términos en `app/technology.py` si querés ajustarlo a tu catálogo comercial. Para que aparezcan más oportunidades, primero es necesario que la sincronización o la carga de CSV incorpore esas licitaciones; el filtro no obtiene registros nuevos.
