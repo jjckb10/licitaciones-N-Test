@@ -96,3 +96,64 @@ def test_get_page_rejects_wrong_page(monkeypatch):
             return FakeResponse()
     with pytest.raises(SICOPSourceError, match='cuando se pidió la 2'):
         get_page(FakeSession(), 'https://www.sicop.go.cr/reporte', 2)
+
+
+def test_fingerprint_includes_amount_not_only_identifiers():
+    # A matching procedure/partida/linea/awardee is not enough to call a page a duplicate.
+    first = fixture_page(count=2)
+    second = first.replace('<td>1000</td>', '<td>1100</td>')
+    assert parse_page(first).signature != parse_page(second).signature
+
+
+def test_fingerprint_ignores_display_row_number():
+    first = fixture_page(count=2)
+    second = first.replace('<tr><td>1</td>', '<tr><td>500</td>')
+    assert parse_page(first).signature == parse_page(second).signature
+
+
+def test_get_page_retries_duplicate_then_accepts_new_content(monkeypatch):
+    from app.sicop_source import get_page
+    first = parse_page(fixture_page(first=1, count=2, current=3)).signature
+    contents = [fixture_page(first=1, count=2, current=4),
+                fixture_page(first=21, count=2, current=4)]
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, html):
+            self.text = html
+        def raise_for_status(self):
+            pass
+
+    class FakeSession:
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return FakeResponse(contents.pop(0))
+
+    monkeypatch.setattr('app.sicop_source.time.sleep', lambda n: None)
+    result = get_page(FakeSession(), 'https://www.sicop.go.cr/view', 4,
+                      previous_signature=first)
+    assert result.rows[0]['Número procedimiento'] == '2026LD-000021-0000000001'
+    assert len(calls) == 2
+    assert '_sicop_retry=' in calls[1][0]
+    assert calls[1][1]['headers']['Cache-Control'].startswith('no-cache')
+
+
+def test_get_page_stops_after_three_identical_pages(monkeypatch):
+    from app.sicop_source import get_page
+    first = parse_page(fixture_page(count=1, current=3)).signature
+    calls = []
+
+    class FakeResponse:
+        text = fixture_page(count=1, current=4)
+        def raise_for_status(self):
+            pass
+    class FakeSession:
+        def get(self, url, **kwargs):
+            calls.append(url)
+            return FakeResponse()
+
+    monkeypatch.setattr('app.sicop_source.time.sleep', lambda n: None)
+    with pytest.raises(SICOPSourceError, match='incluso tras 3 consultas'):
+        get_page(FakeSession(), 'https://www.sicop.go.cr/view', 4,
+                 previous_signature=first)
+    assert len(calls) == 3

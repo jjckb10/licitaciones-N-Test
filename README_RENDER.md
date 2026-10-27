@@ -38,3 +38,15 @@ Para verificar el parser sin consultar el sitio real:
 python -m pip install -r requirements.txt pytest
 python -m pytest -q tests/test_sicop_source.py
 ```
+
+## Corrección de páginas repetidas (27 de octubre de 2026)
+
+- `app/sicop_source.py` compara el **contenido completo del registro**, no solo procedimiento/partida/línea/adjudicatario/estado. Esto evita falsos positivos cuando dos páginas comparten identificadores, pero cambian sus montos o descripciones.
+- Si SICOP entrega realmente la misma página dos veces, hace dos reintentos espaciados con cabeceras `no-cache` y parámetro de verificación; si persiste, la sincronización **se detiene y conserva el avance**. No considera completa la importación y no inventa datos.
+- `SICOP_PAGE_DELAY_SECONDS=0.5` (configuración opcional en Render) reduce la frecuencia de las consultas; admite entre 0 y 5 segundos.
+- Con errores de acceso desde SICOP (HTTP 403/soporte), la extracción no se puede garantizar. Usá **Importar CSV oficial** desde el panel si el portal web permite descargarlo.
+- Tras desplegar, iniciá la sincronización y verificá el mensaje del último intento; no reiniciés el recorrido a menos que quieras volver a partir de la página 1. Los registros existentes no se borran.
+
+## Campo «Cliente / institución solicitante»
+
+La tabla muestra primero la **entidad contratante** (el cliente que solicita el servicio). SICOP la identifica como `Institución`. También se aceptan nombres alternativos en CSV como `Entidad contratante`, `Institución contratante`, `Nombre de la institución`, `Comprador` o `Cliente`. **No confundir con `Adjudicatario`:** este último es el proveedor elegido, no el cliente. La información se guarda en la columna `institution` existente, sin modificar el esquema de PostgreSQL.

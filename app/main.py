@@ -32,6 +32,7 @@ SICOP_OPEN_DATA_URL = os.getenv('SICOP_OPEN_DATA_URL',
 # Multiple calls are needed for large results. Keep each HTTP request within Render's timeout.
 PAGES_PER_RUN = max(1, min(100, int(os.getenv('SICOP_PAGES_PER_RUN', '20'))))
 MAX_RUN_SECONDS = max(20, min(145, int(os.getenv('SICOP_SYNC_MAX_SECONDS', '95'))))
+PAGE_DELAY_SECONDS = max(0, min(5, float(os.getenv('SICOP_PAGE_DELAY_SECONDS', '0.5'))))
 
 USERS = {
     'juanjose.solanocamacho@noventiq.com': ('admin', 'ADMIN_PASSWORD_1'),
@@ -185,7 +186,10 @@ def upsert_rows(rows, conn=None):
         processed.append({
             'id': record_id, 'procedure_number': procedure,
             'description': value(row, 'Descripción', 'description'),
-            'institution': value(row, 'Institución', 'institution'),
+            'institution': value(row, 'Institución', 'Institución contratante',
+                                 'Entidad contratante', 'Entidad solicitante',
+                                 'Nombre de la institución', 'Cliente',
+                                 'Comprador', 'institution', 'client_name'),
             'procedure_type': value(row, 'Tipo Procedimiento', 'procedure_type'),
             'modality': value(row, 'Tipo modalidad', 'modality'),
             'object_classification': value(row, 'Clasificación objeto', 'object_classification'),
@@ -252,15 +256,25 @@ def refresh_public_page():
             # Bootstrap a fresh server session; SICOP's report may require a cookie.
             bootstrap = get_page(source, SICOP_OPEN_DATA_URL, 1)
             page = bootstrap if cursor == 1 else None
+            if cursor > 1:
+                # A pending cursor can contain a signature created by an older
+                # version of the extractor. Re-fetch the preceding page using
+                # the *current* fingerprint before comparing with cursor.
+                previous = get_page(source, SICOP_OPEN_DATA_URL, cursor - 1)
+                last_signature = previous.signature
             while page_count < PAGES_PER_RUN:
                 if time.monotonic() - started_clock >= MAX_RUN_SECONDS:
                     break
                 if page is None:
-                    page = get_page(source, SICOP_OPEN_DATA_URL, cursor)
+                    # Slow down requests and verify duplicates before declaring an error.
+                    if PAGE_DELAY_SECONDS:
+                        time.sleep(PAGE_DELAY_SECONDS)
+                    page = get_page(source, SICOP_OPEN_DATA_URL, cursor,
+                                    previous_signature=last_signature)
                 if page.rows and page.signature == last_signature:
+                    # Defensive check (also protects tests/custom page providers).
                     raise SICOPSourceError(
-                        f'La página {cursor} repite exactamente la anterior. '
-                        'SICOP posiblemente ignoró page_no; no se marcará como completo.')
+                        f'La página {cursor} repite la anterior. No se avanzó el cursor.')
                 if cursor > 1 and not page.rows:
                     # Only a confirmed empty page can signal end when there is no total.
                     if page.total_pages is not None and page.total_pages >= cursor:

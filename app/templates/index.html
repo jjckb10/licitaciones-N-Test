@@ -14,15 +14,15 @@
 {% for cat, msg in get_flashed_messages(with_categories=true) %}<div class="msg {{cat}}">{{msg}}</div>{% endfor %}
 <div class="cards">
  <section class="card"><div>Filas almacenadas</div><div class="n">{{'{:,}'.format(stats.total)}}</div><div class="muted">Total en la base de datos</div></section>
- <section class="card"><div>Instituciones</div><div class="n">{{'{:,}'.format(stats.institutions)}}</div><div class="muted">Instituciones identificadas</div></section>
+ <section class="card"><div>Clientes / instituciones</div><div class="n">{{'{:,}'.format(stats.institutions)}}</div><div class="muted">Entidades contratantes identificadas</div></section>
  <section class="card"><div>Coincidencias</div><div class="n">{{'{:,}'.format(matched)}}</div><div class="muted">Con los filtros actuales</div></section>
 </div>
 <section class="panel" style="margin-top:15px">
  <h2>Buscar y filtrar registros</h2>
  <form class="filters" method="get" action="{{url_for('index')}}">
-  <input aria-label="Buscar" name="q" value="{{q}}" placeholder="Descripción, procedimiento o institución">
+  <input aria-label="Buscar" name="q" value="{{q}}" placeholder="Servicio, procedimiento o cliente">
   <select aria-label="Estado" name="status"><option value="">Todos los estados</option>{% for x in statuses %}<option value="{{x}}" {% if x == status %}selected{% endif %}>{{x}}</option>{% endfor %}</select>
-  <select aria-label="Institución" name="institution"><option value="">Todas las instituciones</option>{% for x in institutions %}<option value="{{x}}" {% if x == inst %}selected{% endif %}>{{x}}</option>{% endfor %}</select>
+  <select aria-label="Cliente o institución solicitante" name="institution"><option value="">Todos los clientes</option>{% for x in institutions %}<option value="{{x}}" {% if x == inst %}selected{% endif %}>{{x}}</option>{% endfor %}</select>
   <select aria-label="Filas por página" name="per_page">{% for n in [25,50,100] %}<option value="{{n}}" {% if per_page == n %}selected{% endif %}>{{n}} por página</option>{% endfor %}</select>
   <button>Filtrar</button>
  </form>
@@ -50,8 +50,9 @@
 {% endif %}
 <section class="panel" style="margin-top:15px">
  <div class="pagination"><strong>{{'{:,}'.format(matched)}} registros encontrados</strong><span class="muted">Página {{page}} de {{pages}} ({{per_page}} registros por página)</span></div>
- <div class="scroll"><table><thead><tr><th>Procedimiento</th><th>Descripción</th><th>Institución</th><th>Estado</th><th class="hide-sm">Monto</th><th class="hide-sm">Adjudicatario</th></tr></thead><tbody>
- {% for r in rows %}<tr><td style="min-width:175px">{{r.procedure_number}}</td><td style="min-width:250px">{{r.description}}</td><td style="min-width:175px">{{r.institution}}</td><td><span class="badge">{{r.status or 'Sin dato'}}</span></td><td class="hide-sm">{{r.currency}} {{'{:,.2f}'.format(r.amount) if r.amount is not none else ''}}</td><td class="hide-sm">{{r.awardee}}</td></tr>
+ <p class="muted small">El <strong>cliente</strong> es la entidad pública que solicita el bien o servicio; el adjudicatario es el proveedor seleccionado, cuando existe.</p>
+ <div class="scroll"><table><thead><tr><th>Cliente / institución solicitante</th><th>Servicio solicitado</th><th>Número de procedimiento</th><th>Estado</th><th class="hide-sm">Monto</th><th class="hide-sm">Proveedor adjudicado</th></tr></thead><tbody>
+ {% for r in rows %}<tr><td style="min-width:220px"><strong>{{r.institution or 'Cliente no informado'}}</strong></td><td style="min-width:250px">{{r.description}}</td><td style="min-width:175px">{{r.procedure_number}}</td><td><span class="badge">{{r.status or 'Sin dato'}}</span></td><td class="hide-sm">{{r.currency}} {{'{:,.2f}'.format(r.amount) if r.amount is not none else ''}}</td><td class="hide-sm">{{r.awardee or 'No informado'}}</td></tr>
  {% else %}<tr><td colspan="6">No hay registros para los filtros seleccionados. Revisá la sincronización o importá un CSV.</td></tr>{% endfor %}
  </tbody></table></div>
  <nav class="pagination" aria-label="Navegación de resultados"><div class="pages">
