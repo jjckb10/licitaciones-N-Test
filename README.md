@@ -74,3 +74,17 @@ pytest -q
 ```
 
 Las pruebas usan datos de ejemplo; **no aseguran** que el sitio de SICOP responda en tiempo real. Se recomienda revisar el registro de sincronización después de cada despliegue, porque el reporte oficial puede cambiar el HTML, la paginación o el acceso desde servidores externos.
+
+## Actualización del lector de tablas (octubre de 2026)
+
+Se corrigió el caso en que SICOP reporta resultados pero las filas contienen
+celdas decorativas adicionales respecto del encabezado (íconos de ordenamiento,
+columnas extra o encabezados divididos). La lectura ya no exige que el número de
+celdas sea exactamente igual en ambas filas: alinea los campos usando el
+número de procedimiento y la estructura documentada del reporte.
+
+La corrección evita contar como éxito una respuesta de error, un bloqueo HTTP
+403 o una página distinta de la solicitada. **No supera restricciones de
+SICOP ni comprueba disponibilidad desde Render:** si el servidor oficial
+bloquea accesos automatizados, usar su descarga oficial CSV sigue siendo la
+alternativa soportada, sin borrar PostgreSQL.

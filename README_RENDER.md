@@ -23,3 +23,18 @@ Invocá periódicamente `POST /tasks/refresh` con `Authorization: Bearer <REFRES
 ### Advertencia sobre alcance
 
 La página «Datos abiertos concursos» no es un índice exhaustivo de procesos en recepción de ofertas. La nueva sincronización obtiene todas las páginas disponibles de **ese reporte**, no toda la información que existe en el sistema SICOP.
+
+## Diagnóstico de extracción HTML (revisión 27-oct-2026)
+
+- El extractor V3 anterior podía descartar filas válidas al exigir que las filas y los encabezados tuvieran **idéntica** cantidad de celdas HTML.
+- `app/sicop_source.py` ahora detecta el número de procedimiento y alinea las columnas aunque existan celdas decorativas adicionales. También tiene un segundo método para tablas con encabezados separados.
+- Si SICOP devuelve HTTP 403, una página con «ID de soporte» o una sesión sin acceso, **ningún cambio del parser puede garantizar la descarga**. El panel mostrará un error descriptivo y conservará el cursor y los registros previos. Descargá el CSV desde el portal oficial e importalo mediante «Importar CSV oficial», o solicitá acceso legítimo a SICOP para el servidor de Render.
+- Si SICOP ignora `page_no` y devuelve otra página, la sincronización se detiene sin declarar un recorrido completo.
+- La extracción sigue limitada al reporte «Datos abiertos concursos». No equivale al listado de ofertas abiertas.
+
+Para verificar el parser sin consultar el sitio real:
+
+```bash
+python -m pip install -r requirements.txt pytest
+python -m pytest -q tests/test_sicop_source.py
+```
