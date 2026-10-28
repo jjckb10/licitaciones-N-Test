@@ -14,6 +14,7 @@ from functools import wraps
 from flask import (Flask, Response, flash, jsonify, redirect, render_template,
                    request, session, stream_with_context, url_for)
 from sqlalchemy import create_engine, text, inspect
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.sicop_source import SICOPSourceError, get_page, make_session, normalize
@@ -40,7 +41,7 @@ PAGES_PER_RUN = max(1, min(100, int(os.getenv('SICOP_PAGES_PER_RUN', '20'))))
 MAX_RUN_SECONDS = max(20, min(145, int(os.getenv('SICOP_SYNC_MAX_SECONDS', '95'))))
 PAGE_DELAY_SECONDS = max(0, min(5, float(os.getenv('SICOP_PAGE_DELAY_SECONDS', '0.5'))))
 
-USERS = {
+LEGACY_BOOTSTRAP_USERS = {
     'juanjose.solanocamacho@noventiq.com': ('admin', 'ADMIN_PASSWORD_1'),
     'jjckb@gmail.com': ('admin', 'ADMIN_PASSWORD_2'),
     'alonso.fallasvargas@noventiq.com': ('user', 'USER_PASSWORD_1'),
@@ -52,7 +53,10 @@ USERS = {
 
 DDL = [
     '''CREATE TABLE IF NOT EXISTS users(email VARCHAR(255) PRIMARY KEY,
-       password_hash TEXT NOT NULL,role VARCHAR(20) NOT NULL,updated_at TEXT NOT NULL)''',
+       password_hash TEXT NOT NULL,role VARCHAR(20) NOT NULL,updated_at TEXT NOT NULL,
+       is_active INTEGER NOT NULL DEFAULT 1,auth_version INTEGER NOT NULL DEFAULT 1,
+       created_at TEXT,last_login TEXT)''',
+    '''CREATE TABLE IF NOT EXISTS app_settings(key VARCHAR(120) PRIMARY KEY, value TEXT)''',
     '''CREATE TABLE IF NOT EXISTS tenders(id VARCHAR(220) PRIMARY KEY,
        description TEXT,procedure_number VARCHAR(140),institution TEXT,
        procedure_type TEXT,modality TEXT,object_classification TEXT,item TEXT,
@@ -130,6 +134,16 @@ def init_db():
                     conn.execute(text(f'ALTER TABLE tenders ADD COLUMN {name} {kind}'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_tenders_it_priority ON tenders(is_it,it_score)'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_tenders_publication ON tenders(publication_date)'))
+        # Additive migration for user accounts created by V2-V5; never drop a user.
+        user_columns = {col['name'] for col in inspect(conn).get_columns('users')}
+        for name, kind in (('is_active', 'INTEGER NOT NULL DEFAULT 1'),
+                           ('auth_version', 'INTEGER NOT NULL DEFAULT 1'),
+                           ('created_at', 'TEXT'), ('last_login', 'TEXT')):
+            if name not in user_columns:
+                if engine.dialect.name == 'postgresql':
+                    conn.execute(text(f'ALTER TABLE users ADD COLUMN IF NOT EXISTS {name} {kind}'))
+                else:
+                    conn.execute(text(f'ALTER TABLE users ADD COLUMN {name} {kind}'))
         conn.execute(text('''INSERT INTO sync_state(id,next_page,pages_done)
                              VALUES(1,1,0) ON CONFLICT(id) DO NOTHING'''))
     _INITIALIZED_ENGINE = engine
@@ -160,26 +174,52 @@ def backfill_classifications(limit=500):
     return len(payload)
 
 
-def sync_users():
-    now = utcnow()
+def bootstrap_users():
+    # One-time legacy import. Preserve existing V2-V5 rows and roles.
+    # New databases are seeded from Render env credentials only once.
     with engine.begin() as conn:
-        for email, (role, env_var) in USERS.items():
-            password = os.getenv(env_var, '')
-            user = conn.execute(text('SELECT role FROM users WHERE email=:email'),
-                                {'email': email}).mappings().first()
-            if not user and password:
-                conn.execute(text('''INSERT INTO users(email,password_hash,role,updated_at)
-                                     VALUES(:email,:password,:role,:now)'''),
-                             {'email': email, 'password': generate_password_hash(password),
-                              'role': role, 'now': now})
-            elif user and user['role'] != role:
-                conn.execute(text('UPDATE users SET role=:role,updated_at=:now WHERE email=:email'),
-                             {'role': role, 'now': now, 'email': email})
+        done = conn.execute(text(
+            "SELECT value FROM app_settings WHERE key='legacy_user_bootstrap_v1'"
+        )).scalar_one_or_none()
+        if done:
+            return
+        existing = conn.execute(text('SELECT COUNT(*) FROM users')).scalar_one()
+        if not existing:
+            # Do not initialize a database with users but no administrator.
+            admin_configured = any(os.getenv(env, '') for _, (role, env)
+                                   in LEGACY_BOOTSTRAP_USERS.items() if role == 'admin')
+            if not admin_configured:
+                return
+            now = utcnow()
+            for email, (role, env_var) in LEGACY_BOOTSTRAP_USERS.items():
+                password = os.getenv(env_var, '')
+                if password:
+                    conn.execute(text('''INSERT INTO users
+                        (email,password_hash,role,updated_at,created_at)
+                        VALUES (:email,:password,:role,:now,:now)
+                        ON CONFLICT(email) DO NOTHING'''),
+                        {'email': email, 'password': generate_password_hash(password),
+                         'role': role, 'now': now})
+            existing = conn.execute(text('SELECT COUNT(*) FROM users')).scalar_one()
+        if existing:
+            conn.execute(text('''INSERT INTO app_settings(key,value)
+                VALUES ('legacy_user_bootstrap_v1','done')
+                ON CONFLICT(key) DO NOTHING'''))
 
 
 def current_user():
-    return {'email': session['email'], 'admin': session.get('role') == 'admin'} \
-        if session.get('email') else None
+    # Read current DB role/status, rejecting revoked sessions immediately.
+    email = session.get('email')
+    session_version = session.get('auth_version')
+    if not email or not isinstance(session_version, int):
+        return None
+    with engine.connect() as conn:
+        account = conn.execute(text('''SELECT email,role,is_active,auth_version
+            FROM users WHERE email=:email'''), {'email': email}).mappings().first()
+    if not account or not account['is_active'] or account['auth_version'] != session_version:
+        return None
+    return {'email': account['email'], 'admin': account['role'] == 'admin',
+            'role': account['role']}
 
 
 def login_required(function):
@@ -194,12 +234,45 @@ def login_required(function):
 def admin_required(function):
     @wraps(function)
     def wrapper(*args, **kwargs):
-        if not current_user():
+        actor = current_user()
+        if not actor:
             return redirect(url_for('login'))
-        if not current_user()['admin']:
+        if not actor['admin']:
             return 'Forbidden', 403
         return function(*args, **kwargs)
     return wrapper
+
+
+# Conservative server-side validation for user administration.
+EMAIL_RE = re.compile(r'^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]+$')
+
+
+def normalized_email(value):
+    email = str(value or '').strip().lower()
+    return email if len(email) <= 255 and EMAIL_RE.fullmatch(email) else None
+
+
+def valid_password(password):
+    return isinstance(password, str) and 12 <= len(password) <= 128 and bool(password.strip())
+
+
+def csrf_token():
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_urlsafe(32)
+    return session['csrf_token']
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': csrf_token()}
+
+
+def require_form_csrf():
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and request.endpoint != 'scheduled_refresh':
+        submitted = request.form.get('csrf_token') or request.headers.get('X-CSRF-Token', '')
+        if not submitted or not secrets.compare_digest(submitted, session.get('csrf_token', '')):
+            return 'Solicitud rechazada: token de seguridad inválido. Recargá la página.', 400
+    return None
 
 
 def value(row, *aliases):
@@ -417,7 +490,8 @@ def refresh_public_page():
 @app.before_request
 def boot():
     init_db()
-    sync_users()
+    bootstrap_users()
+    return require_form_csrf()
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -428,10 +502,14 @@ def login():
         with engine.begin() as conn:
             user = conn.execute(text('SELECT * FROM users WHERE email=:email'),
                                 {'email': email}).mappings().first()
-        if user and check_password_hash(user['password_hash'], password):
+        if user and user['is_active'] and check_password_hash(user['password_hash'], password):
+            with engine.begin() as conn:
+                conn.execute(text('UPDATE users SET last_login=:now WHERE email=:email'),
+                             {'now': utcnow(), 'email': email})
             session.clear()
             session['email'] = email
-            session['role'] = user['role']
+            session['auth_version'] = user['auth_version']
+            csrf_token()
             return redirect(url_for('index'))
         flash('Credenciales incorrectas.', 'error')
     return render_template('login.html')
@@ -442,6 +520,130 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+
+
+@app.get('/admin/users')
+@admin_required
+def manage_users():
+    with engine.connect() as conn:
+        users = conn.execute(text('''SELECT email,role,is_active,created_at,
+            last_login,updated_at FROM users ORDER BY role ASC,email ASC''')).mappings().all()
+    return render_template('users.html', users=users, u=current_user())
+
+
+@app.post('/admin/users/create')
+@admin_required
+def create_user():
+    email = normalized_email(request.form.get('email'))
+    password = request.form.get('password', '')
+    role = request.form.get('role', 'user')
+    if not email or not valid_password(password) or role not in ('admin', 'user'):
+        flash('Revisá el correo, el rol y la contraseña (mínimo 12 caracteres).', 'error')
+        return redirect(url_for('manage_users'))
+    try:
+        now = utcnow()
+        with engine.begin() as conn:
+            conn.execute(text('''INSERT INTO users
+               (email,password_hash,role,is_active,auth_version,created_at,updated_at)
+               VALUES (:email,:pwd,:role,1,1,:now,:now)'''),
+               {'email': email, 'pwd': generate_password_hash(password),
+                'role': role, 'now': now})
+        flash('Usuario creado. Compartí su contraseña por un canal seguro.', 'ok')
+    except IntegrityError:
+        flash('Ese correo ya está registrado. Podés reactivarlo o cambiar su contraseña.', 'error')
+    return redirect(url_for('manage_users'))
+
+
+@app.post('/admin/users/password')
+@admin_required
+def reset_user_password():
+    email = normalized_email(request.form.get('email'))
+    password = request.form.get('password', '')
+    if not email or not valid_password(password):
+        flash('Ingresá un correo válido y una nueva contraseña de al menos 12 caracteres.', 'error')
+        return redirect(url_for('manage_users'))
+    with engine.begin() as conn:
+        result = conn.execute(text('''UPDATE users SET password_hash=:pwd,
+            auth_version=auth_version+1,updated_at=:now WHERE email=:email'''),
+            {'pwd': generate_password_hash(password), 'now': utcnow(), 'email': email})
+    if result.rowcount:
+        flash('Contraseña actualizada. Las sesiones anteriores de esa cuenta fueron revocadas.', 'ok')
+        if email == session.get('email'):
+            session.clear()
+            return redirect(url_for('login'))
+    else:
+        flash('No se encontró el usuario.', 'error')
+    return redirect(url_for('manage_users'))
+
+
+@app.post('/admin/users/role')
+@admin_required
+def change_user_role():
+    email = normalized_email(request.form.get('email'))
+    role = request.form.get('role')
+    if not email or role not in ('admin', 'user'):
+        flash('Correo o rol inválido.', 'error')
+        return redirect(url_for('manage_users'))
+    if email == session.get('email'):
+        flash('No podés cambiar tu propio rol desde esta pantalla.', 'error')
+        return redirect(url_for('manage_users'))
+    with engine.begin() as conn:
+        # Serialize concurrent admin-role changes so they cannot remove all admins.
+        if engine.dialect.name == 'postgresql':
+            conn.execute(text('SELECT pg_advisory_xact_lock(67523011)'))
+        account = conn.execute(text('SELECT role,is_active FROM users WHERE email=:email'),
+                               {'email': email}).mappings().first()
+        if not account:
+            flash('Usuario no encontrado.', 'error')
+        elif account['role'] != role:
+            if account['role'] == 'admin' and account['is_active'] and role != 'admin':
+                admins = conn.execute(text('''SELECT COUNT(*) FROM users
+                    WHERE role='admin' AND is_active=1''')).scalar_one()
+                if admins <= 1:
+                    flash('Debe permanecer al menos un administrador activo.', 'error')
+                    return redirect(url_for('manage_users'))
+            conn.execute(text('''UPDATE users SET role=:role,auth_version=auth_version+1,
+                updated_at=:now WHERE email=:email'''),
+                {'email': email, 'role': role, 'now': utcnow()})
+            flash('Rol actualizado. La sesión anterior de esa cuenta fue revocada.', 'ok')
+        else:
+            flash('El usuario ya tiene ese rol.', 'ok')
+    return redirect(url_for('manage_users'))
+
+
+@app.post('/admin/users/status')
+@admin_required
+def change_user_status():
+    email = normalized_email(request.form.get('email'))
+    active = request.form.get('active')
+    if not email or active not in ('0', '1'):
+        flash('Datos de usuario inválidos.', 'error')
+        return redirect(url_for('manage_users'))
+    if email == session.get('email') and active == '0':
+        flash('No podés desactivar tu propia cuenta.', 'error')
+        return redirect(url_for('manage_users'))
+    with engine.begin() as conn:
+        # Serialize concurrent admin-role changes so they cannot remove all admins.
+        if engine.dialect.name == 'postgresql':
+            conn.execute(text('SELECT pg_advisory_xact_lock(67523011)'))
+        account = conn.execute(text('SELECT role,is_active FROM users WHERE email=:email'),
+                               {'email': email}).mappings().first()
+        if not account:
+            flash('Usuario no encontrado.', 'error')
+        elif account['is_active'] != int(active):
+            if account['role'] == 'admin' and account['is_active'] and active == '0':
+                admins = conn.execute(text('''SELECT COUNT(*) FROM users
+                    WHERE role='admin' AND is_active=1''')).scalar_one()
+                if admins <= 1:
+                    flash('Debe permanecer al menos un administrador activo.', 'error')
+                    return redirect(url_for('manage_users'))
+            conn.execute(text('''UPDATE users SET is_active=:active,
+                auth_version=auth_version+1,updated_at=:now WHERE email=:email'''),
+                {'active': int(active), 'now': utcnow(), 'email': email})
+            flash('Estado actualizado. Las sesiones anteriores de esa cuenta fueron revocadas.', 'ok')
+        else:
+            flash('No hubo cambios.', 'ok')
+    return redirect(url_for('manage_users'))
 
 def present_row(row):
     item = dict(row)
@@ -560,6 +762,43 @@ def table_query_args(q, status, institution, tech, priority, column, per_page, s
     return args
 
 
+# Filter chips use the same canonical parameters as CSV/pagination links.
+# Removing a chip never changes a different active filter.
+FILTER_DESCRIPTIONS = {
+    'q': 'Búsqueda', 'status': 'Estado (anterior)',
+    'institution': 'Cliente (anterior)', 'priority': 'Prioridad (anterior)',
+    'client_contains': 'Cliente', 'description_contains': 'Descripción',
+    'published_from': 'Publicado desde', 'published_to': 'Publicado hasta',
+    'publication_missing': 'Sin fecha', 'column_priority': 'Prioridad',
+    'column_area': 'Especialidad', 'procedure_contains': 'Procedimiento',
+    'state_contains': 'Estado', 'type_contains': 'Tipo de licitación',
+    'amount_min': 'Monto desde', 'amount_max': 'Monto hasta',
+    'awardee_contains': 'Adjudicatario',
+}
+
+
+def describe_filters(query_args):
+    """Return removable, escaped-by-Jinja filter labels and links for the UI."""
+    chips = []
+    for key, value in query_args.items():
+        if not value:
+            continue
+        if key == 'tech':
+            if value == 'noventiq':
+                continue
+            label, shown = 'Perfil', dict(TECH_FILTER_OPTIONS).get(value, value)
+            cleared = {**query_args, 'tech': 'noventiq'}
+        elif key in FILTER_DESCRIPTIONS:
+            label = FILTER_DESCRIPTIONS[key]
+            shown = 'Sí' if key == 'publication_missing' else value
+            cleared = {**query_args, key: ''}
+        else:
+            continue
+        chips.append({'label': label, 'value': str(shown)[:100],
+                      'url': url_for('index', **cleared)})
+    return chips
+
+
 def positive_int(value, default, max_value):
     try:
         return max(1, min(max_value, int(value)))
@@ -590,23 +829,22 @@ def index():
             SUM(CASE WHEN is_it=1 THEN 1 ELSE 0 END) AS ti_total,
             SUM(CASE WHEN it_priority='Alta' THEN 1 ELSE 0 END) AS altas
             FROM tenders''')).mappings().one()
-        statuses = [x[0] for x in conn.execute(text(
-            "SELECT DISTINCT status FROM tenders WHERE status<>'' ORDER BY status"))]
-        institutions = [x[0] for x in conn.execute(text(
-            "SELECT DISTINCT institution FROM tenders WHERE institution<>'' ORDER BY institution"))]
         sync_state = conn.execute(text('SELECT * FROM sync_state WHERE id=1')).mappings().one()
         last_run = conn.execute(text('''SELECT * FROM sync_runs
             ORDER BY id DESC LIMIT 1''')).mappings().first()
-    return render_template('index.html', rows=rows, stats=stats, statuses=statuses,
-                           institutions=institutions, u=current_user(), q=q,
-                           status=status, inst=institution, tech=tech, priority=priority,
+    query_args = table_query_args(q, status, institution, tech, priority,
+                                  column, per_page, sort)
+    return render_template('index.html', rows=rows, stats=stats,
+                           u=current_user(), q=q, status=status,
+                           inst=institution, tech=tech, priority=priority,
                            tech_filter_options=TECH_FILTER_OPTIONS, page=page, pages=pages,
                            matched=matched, per_page=per_page, sync_state=sync_state,
                            page_numbers=range(max(1, page-2), min(pages, page+2)+1),
                            last_run=last_run, column=column, sort=sort,
                            sort_options=SORT_OPTIONS, area_options=AREA_LABELS.items(),
-                           query_args=table_query_args(q, status, institution, tech, priority,
-                             column, per_page, sort))
+                           query_args=query_args, active_chips=describe_filters(query_args),
+                           column_active=any(column.values()) or bool(status or institution or priority),
+                           column_filter_count=sum(bool(value) for value in column.values()))
 
 
 def csv_import(file_obj, encoding):

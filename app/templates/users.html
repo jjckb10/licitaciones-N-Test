@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Usuarios · SICOP Hub</title>
+<style>
+:root{font-family:Segoe UI,Arial,sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}.top{background:#0b3a66;color:white;padding:17px 4vw;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.top a{color:white}.wrap{max-width:1200px;margin:auto;padding:22px 4vw 50px}.panel{background:white;border:1px solid #dce4ee;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 2px 8px #10203012}h1{font-size:1.65rem}h2{font-size:1.15rem;margin-top:0}.muted{color:#63758c;font-size:.9rem}input,select,button{padding:10px;border:1px solid #bdcbdc;border-radius:8px;font:inherit;max-width:100%}input[type=email],input[type=password]{min-width:190px}button{background:#0b65c2;color:white;border-color:#0b65c2;cursor:pointer}button.secondary{background:white;color:#0b65c2}button.danger{color:#a82929;border-color:#dc9090;background:white}button:disabled{opacity:.5}form{margin:0}.add{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.add label{display:flex;flex-direction:column;gap:5px;font-weight:600}.scroll{overflow:auto}table{border-collapse:collapse;width:100%}th,td{padding:14px 10px;border-bottom:1px solid #e2e9f1;text-align:left;vertical-align:top}th{white-space:nowrap;background:#f6f9fc}.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.actions form{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.actions input{min-width:185px}.msg{padding:12px;border-radius:8px;margin-bottom:12px}.msg.ok{background:#e5f7ec}.msg.error{background:#fdeaea}.pill{padding:5px 9px;border-radius:16px;background:#e8f4ec;color:#176339;display:inline-block}.pill.off{background:#fbe9e9;color:#9a2424}.sub{font-size:.85rem;color:#63758c}@media(max-width:650px){table{min-width:800px}.add{display:grid}}
+</style></head><body>
+<header class="top"><strong>SICOP Opportunity Hub · Administración de usuarios</strong><span>{{u.email}} · <a href="{{url_for('index')}}">Volver al panel</a> · <a href="{{url_for('logout')}}">Salir</a></span></header>
+<main class="wrap"><h1>Usuarios y contraseñas</h1>
+<p class="muted">Solo administradores. Las cuentas se almacenan en PostgreSQL y las contraseñas se guardan mediante hash, nunca en texto plano.</p>
+{% for cat,msg in get_flashed_messages(with_categories=true) %}<div class="msg {{cat}}" role="alert">{{msg}}</div>{% endfor %}
+<section class="panel"><h2>Crear usuario</h2>
+<form action="{{url_for('create_user')}}" method="post" class="add">
+<input type="hidden" name="csrf_token" value="{{csrf_token}}">
+<label>Correo electrónico<input type="email" name="email" autocomplete="off" required maxlength="255" placeholder="persona@empresa.com"></label>
+<label>Contraseña inicial<input type="password" name="password" autocomplete="new-password" required minlength="12" maxlength="128" placeholder="Mínimo 12 caracteres"></label>
+<label>Rol<select name="role"><option value="user">Usuario (consulta)</option><option value="admin">Administrador</option></select></label>
+<button type="submit">Agregar usuario</button></form>
+<p class="sub">Compartí la contraseña inicial de forma privada. No se envían correos automáticos desde la aplicación.</p>
+</section>
+<section class="panel"><h2>Usuarios existentes ({{users|length}})</h2>
+<p class="muted">Podés restablecer contraseñas, cambiar roles y desactivar o reactivar cuentas. Los cambios de contraseña, rol y estado cierran las sesiones anteriores del usuario afectado.</p>
+<div class="scroll"><table><thead><tr><th>Correo</th><th>Rol y estado</th><th>Último ingreso</th><th>Acciones</th></tr></thead><tbody>
+{% for row in users %}<tr><td><strong>{{row.email}}</strong>{% if row.email == u.email %}<div class="sub">Tu cuenta</div>{% endif %}</td>
+<td>{{'Administrador' if row.role == 'admin' else 'Usuario'}}<div><span class="pill {{'' if row.is_active else 'off'}}">{{'Activo' if row.is_active else 'Desactivado'}}</span></div></td>
+<td class="sub">{{row.last_login or 'Sin registro'}}</td><td><div class="actions">
+<form action="{{url_for('reset_user_password')}}" method="post"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input type="hidden" name="email" value="{{row.email}}"><input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="Nueva contraseña" aria-label="Nueva contraseña para {{row.email}}" required><button class="secondary" type="submit">Cambiar contraseña</button></form>
+{% if row.email != u.email %}
+<form action="{{url_for('change_user_role')}}" method="post"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input type="hidden" name="email" value="{{row.email}}"><select name="role" aria-label="Rol para {{row.email}}"><option value="user" {% if row.role == 'user' %}selected{% endif %}>Usuario</option><option value="admin" {% if row.role == 'admin' %}selected{% endif %}>Admin</option></select><button class="secondary" type="submit">Cambiar rol</button></form>
+<form action="{{url_for('change_user_status')}}" method="post" onsubmit="return confirm('¿Confirmar cambio de acceso?')"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input type="hidden" name="email" value="{{row.email}}"><input type="hidden" name="active" value="{{'0' if row.is_active else '1'}}"><button type="submit" class="{{'danger' if row.is_active else 'secondary'}}">{{'Desactivar' if row.is_active else 'Reactivar'}}</button></form>
+{% endif %}
+</div></td></tr>{% else %}<tr><td colspan="4">No hay usuarios registrados.</td></tr>{% endfor %}
+</tbody></table></div></section>
+</main></body></html>

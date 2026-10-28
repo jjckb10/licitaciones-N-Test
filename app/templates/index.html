@@ -3,152 +3,155 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SICOP Opportunity Hub</title>
+<title>Oportunidades · Noventiq SICOP</title>
 <style>
-:root{font-family:Segoe UI,Arial,sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}a{color:#0966ba;text-decoration:none}a:hover{text-decoration:underline}.top{background:#0b3a66;color:white;padding:17px 4vw;display:flex;justify-content:space-between;gap:15px;align-items:center}.top a{color:white}.wrap{max-width:1560px;margin:auto;padding:22px 4vw 45px}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.card,.panel{background:#fff;border:1px solid #dce4ee;border-radius:12px;padding:17px;box-shadow:0 2px 8px #10203012}.n{font-size:30px;font-weight:700;margin-top:5px}.muted{color:#657389;font-size:.88rem}.filters{display:grid;grid-template-columns:minmax(200px,2fr) minmax(210px,1.6fr) 1fr 1fr 120px auto;gap:10px;align-items:center}.admin,.toolrow,.pagination{display:flex;gap:10px;align-items:center;flex-wrap:wrap}input,select,button,.btn{padding:10px 11px;border:1px solid #bec9d6;border-radius:8px;font:inherit;max-width:100%;background:white;color:#172033}.btn,button{display:inline-block;background:#0b65c2;color:white;border:1px solid #0b65c2;cursor:pointer;text-decoration:none}.btn.secondary,button.secondary{background:white;color:#0b65c2;border-color:#9db9d6}.btn:hover{text-decoration:none;opacity:.9}.panel h2{font-size:1.15rem;margin:0 0 8px}.panel p{margin:5px 0}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:11px;border-bottom:1px solid #e5eaf0;vertical-align:top}th{background:#f7f9fc;position:sticky;top:0}tr:hover td{background:#f8fbfe}.scroll{overflow:auto;max-height:67vh}.badge{padding:4px 8px;border-radius:99px;background:#e8f1fb;display:inline-block;white-space:nowrap}.msg{padding:12px;border-radius:8px;margin-bottom:12px}.ok{background:#e5f7ec}.error{background:#fdeaea}.pagination{justify-content:space-between;margin:15px 0}.pages{display:flex;gap:5px;flex-wrap:wrap}.pages a,.pages span{padding:7px 11px;border-radius:7px;border:1px solid #cad7e5}.pages .active{background:#0b65c2;color:white}.small{font-size:13px}.source{font-size:.85rem;color:#5c6879}.prio{display:inline-block;border-radius:7px;background:#edf3f9;padding:5px 8px;font-size:.82rem;font-weight:600}.prio-Alta{background:#e3f5ea;color:#176339}.prio-Media{background:#fff0d3;color:#805400}.prio-Baja{background:#eef1f4;color:#556473}.desc{max-width:430px;line-height:1.45}.desc strong{display:block;color:#29384b;font-size:.85rem;margin-bottom:4px}.client{font-weight:700;color:#123e6c}.tiny{font-size:12px;color:#667587}.info{background:#eff5fc;border-radius:8px;padding:12px}form{margin:0}.download{margin-left:auto}@media(max-width:1050px){.filters{grid-template-columns:1fr 1fr}.filters input:first-child{grid-column:span 2}}@media(max-width:740px){.cards,.filters{grid-template-columns:1fr}.filters input:first-child{grid-column:auto}.top{display:block}.hide-sm{display:none}.n{font-size:25px}}
-
-.tenders-table{min-width:1560px}.tenders-table th{min-width:145px;white-space:normal}.tenders-table th:nth-child(2){min-width:265px}.tenders-table th:nth-child(3){min-width:200px}.tenders-table th:nth-child(5){min-width:195px}.column-filters th{top:45px;background:#edf4fc;padding:7px;z-index:2}.column-filters input,.column-filters select{width:100%;min-width:100px;font-size:12px;padding:7px 6px;background:white}.column-filters .date-filter{min-width:200px}.date-filter label{display:block;font-weight:400;font-size:11px;margin-bottom:4px}.column-filters .date-filter input[type=date]{min-width:148px}.column-filters .checkline{display:flex;align-items:center;gap:5px}.column-filters .checkline input{width:auto;min-width:auto}.column-filters .amount-filter input{display:block;margin-bottom:4px}.tenders-table td{min-width:155px}.tenders-table .published{white-space:nowrap}.tenders-table .published small{display:block;font-weight:400;color:#718096}.tenders-table .area-badge{margin:2px 3px 2px 0;white-space:normal;font-size:12px}.scroll{max-height:75vh}.top-filter-note{color:#657389;font-size:12px}.quick-areas{margin-top:12px}.quick-areas a{display:inline-block;border:1px solid #cad8e8;background:#f2f7fe;padding:7px 10px;border-radius:20px;font-size:13px}
+:root{font-family:Inter,Segoe UI,system-ui,-apple-system,sans-serif;color:#162b40;background:#f4f7fb;line-height:1.4}*{box-sizing:border-box}body{margin:0}a{color:#1362a8;text-decoration:none}a:hover{text-decoration:underline}button,input,select{font:inherit}button,.btn{background:#125a9f;border:1px solid #125a9f;color:white;border-radius:9px;padding:10px 14px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;text-decoration:none}button:hover,.btn:hover{filter:brightness(.95);text-decoration:none}button.secondary,.btn.secondary{background:#fff;color:#19578c;border-color:#b8cce1}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #69a7e3;outline-offset:2px}input,select{border:1px solid #bdcada;border-radius:9px;padding:10px 12px;background:#fff;color:#1b2d42;max-width:100%;min-width:0}label{font-size:13px;font-weight:600;color:#38516b}.muted{color:#62738a}.small{font-size:12px}.tiny{font-size:11px;color:#6b7c8e}.top{background:#123c68;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:17px clamp(15px,3vw,38px)}.top a{color:#fff}.brand{font-weight:750;font-size:17px}.subbrand{font-size:12px;opacity:.82;margin-top:3px}.account{font-size:13px;text-align:right}.wrap{max-width:1700px;margin:auto;padding:20px clamp(12px,3vw,38px) 48px}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.card,.panel{background:#fff;border:1px solid #dde6ef;border-radius:13px;box-shadow:0 2px 8px #122c4610}.card{padding:14px 16px}.card .n{font-size:26px;font-weight:750;line-height:1.25;margin-top:5px}.card .muted{font-size:12px}.panel{padding:18px;margin-top:14px}h1,h2,p{margin-top:0}h1{font-size:20px;line-height:1.3;margin-bottom:4px}h2{font-size:17px;margin-bottom:8px}.msg{border-radius:9px;padding:11px 14px;margin-bottom:12px}.msg.ok{background:#e7f6ed}.msg.error{background:#ffecec}.search-row{display:grid;grid-template-columns:minmax(220px,2fr) minmax(175px,1fr) auto auto;gap:9px;align-items:end;margin-top:14px}.field{display:flex;flex-direction:column;gap:5px}.field input,.field select{width:100%}.search-row button{min-height:42px}.filter-tools{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:13px;border-top:1px solid #edf1f6;padding-top:12px}.mini-field{display:flex;gap:5px;align-items:center}.mini-field select{padding:7px 8px;font-size:12px}.filter-tools .push{margin-left:auto}.active-filters{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:12px}.chip{display:inline-flex;gap:7px;align-items:center;background:#ecf4ff;border:1px solid #cce0f6;border-radius:999px;padding:5px 10px;font-size:12px;color:#235482;max-width:100%}.chip span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:260px}.chip:hover{text-decoration:none;background:#deedff}.filter-count{background:#e0eaf4;color:#264f7b;border-radius:999px;padding:2px 7px;font-size:11px}.results-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px}.results-bar strong{font-size:16px}.table-hint{font-size:12px;color:#6b7d8e;margin:0 0 10px}.scroll{overflow:auto;max-height:69vh;border:1px solid #e3eaf2;border-radius:10px}.tenders-table{border-collapse:separate;border-spacing:0;min-width:1540px;width:100%;font-size:13px}.tenders-table th,.tenders-table td{padding:11px 12px;vertical-align:top;text-align:left;border-bottom:1px solid #e8edf3}.tenders-table th{background:#f0f5fa;white-space:nowrap;position:sticky;top:0;z-index:2;font-size:12px;color:#31516d}.tenders-table th:nth-child(1){min-width:195px}.tenders-table th:nth-child(2){min-width:255px}.tenders-table th:nth-child(3){min-width:165px}.tenders-table th:nth-child(5){min-width:200px}.tenders-table tbody tr:hover td{background:#f8fbff}.column-filters th{top:40px;background:#e6f0fb;padding:8px;z-index:2}.column-filters[hidden]{display:none}.column-filters input,.column-filters select{width:100%;min-width:100px;font-size:12px;padding:7px 8px}.column-filters label{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:500}.column-filters .range{display:flex;flex-direction:column;gap:5px}.column-filters .checkline{display:flex;flex-direction:row;align-items:center;gap:5px;font-size:11px}.column-filters .checkline input{width:auto;min-width:0}.column-filters .inline-note{font-size:11px;color:#58718a;font-weight:400}.client{font-weight:700;color:#123f6c}.desc{max-width:430px;line-height:1.45}.summary{color:#283f55}.badge{padding:4px 8px;border-radius:999px;background:#e7f0fa;display:inline-block;font-size:12px;margin:2px 3px 2px 0}.prio{display:inline-block;border-radius:7px;background:#edf3f9;padding:5px 8px;font-size:12px;font-weight:650}.prio-Alta{background:#e3f5ea;color:#176339}.prio-Media{background:#fff0d3;color:#805400}.prio-Baja{background:#eef1f4;color:#556473}.published{white-space:nowrap}.published small{display:block;color:#718096}.pagination{display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap;margin-top:12px}.pages{display:flex;gap:5px;flex-wrap:wrap}.pages a,.pages span{display:inline-block;padding:6px 10px;border-radius:7px;border:1px solid #d0dce8;font-size:13px}.pages .active{background:#125a9f;color:white}.admin-tools summary{font-weight:700;cursor:pointer;list-style-position:inside}.admin-tools .info{background:#eef5fc;border-radius:9px;padding:12px;margin:12px 0;font-size:12px}.admin-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}.admin-tools form{margin:0}.admin-tools input[type=file]{padding:7px}.source{font-size:12px;color:#62738a}.separator{color:#93a3b8;margin:0 6px}@media(max-width:940px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.search-row{grid-template-columns:1fr 1fr}.filter-tools .push{margin-left:0}}@media(max-width:620px){.top{align-items:flex-start;flex-direction:column}.account{text-align:left}.wrap{padding:12px}.panel{padding:14px}.cards{gap:8px}.card{padding:11px}.card .n{font-size:22px}.search-row{grid-template-columns:1fr}.search-row button{width:100%}.filter-tools{align-items:stretch}.filter-tools .mini-field{flex:1 1 42%}.filter-tools select{width:100%}.results-bar{align-items:flex-start}.scroll{max-height:68vh}}
 </style>
+<noscript><style>.column-filters[hidden]{display:table-row!important}</style></noscript>
 </head>
 <body>
-<header class="top"><div><strong>SICOP Opportunity Hub V5 · Noventiq</strong><div class="small">Radar de tecnología, SOC y seguridad · SICOP / PostgreSQL</div></div><div class="small">{{u.email}} · <a href="{{url_for('logout')}}">Salir</a></div></header>
+<header class="top">
+ <div><div class="brand">SICOP Opportunity Hub <span class="small">V6.1 · Noventiq</span></div><div class="subbrand">Oportunidades comerciales de tecnología y seguridad</div></div>
+ <div class="account">{{u.email}}{% if u.admin %}<span class="separator">·</span><a href="{{url_for('manage_users')}}">Usuarios</a>{% endif %}<span class="separator">·</span><a href="{{url_for('logout')}}">Salir</a></div>
+</header>
 <main class="wrap">
 {% set column = column|default({}) %}
+{% set tech = tech|default('noventiq') %}
+{% set priority = priority|default('') %}
 {% set sort = sort|default('relevance') %}
 {% set sort_options = sort_options|default([]) %}
-{% set area_options = area_options|default([]) %}
 {% set query_args = query_args|default(dict(q=q,status=status,institution=inst,tech=tech|default('noventiq'),priority=priority|default(''),per_page=per_page)) %}
+{% set active_chips = active_chips|default([]) %}
+{% set column_active = column_active|default(false) %}
 {% for cat, msg in get_flashed_messages(with_categories=true) %}<div class="msg {{cat}}">{{msg}}</div>{% endfor %}
 <div class="cards">
- <section class="card"><div>Oportunidades TI</div><div class="n">{{'{:,}'.format(stats.ti_total or 0)}}</div><div class="muted">Detectadas en el histórico almacenado</div></section>
- <section class="card"><div>Prioridad alta</div><div class="n">{{'{:,}'.format(stats.altas or 0)}}</div><div class="muted">Según reglas comerciales orientativas</div></section>
- <section class="card"><div>Clientes identificados</div><div class="n">{{'{:,}'.format(stats.institutions)}}</div><div class="muted">Instituciones solicitantes</div></section>
- <section class="card"><div>Total almacenado</div><div class="n">{{'{:,}'.format(stats.total)}}</div><div class="muted">Todas las contrataciones, incluidas las no TI</div></section>
+ <section class="card"><div class="muted">Oportunidades TI</div><div class="n">{{'{:,}'.format(stats.ti_total or 0)}}</div></section>
+ <section class="card"><div class="muted">Prioridad alta</div><div class="n">{{'{:,}'.format(stats.altas or 0)}}</div></section>
+ <section class="card"><div class="muted">Clientes identificados</div><div class="n">{{'{:,}'.format(stats.institutions)}}</div></section>
+ <section class="card"><div class="muted">Registros almacenados</div><div class="n">{{'{:,}'.format(stats.total)}}</div></section>
 </div>
-<section class="panel" style="margin-top:15px">
- <h2>Oportunidades de negocio · perfil Noventiq</h2>
- <p class="muted small">Por defecto se muestran oportunidades relacionadas con TI, ordenadas por relevancia. Podés cambiar a «Todas las licitaciones» cuando lo necesités.</p>
- <form class="filters" method="get" action="{{url_for('index')}}">
-  <input aria-label="Buscar" name="q" value="{{q}}" placeholder="Servicio, procedimiento o cliente">
-  <select aria-label="Categoría tecnológica" name="tech" title="Filtrar oportunidades de tecnología"><option value="all" {% if tech == "all" %}selected{% endif %}>Todas las licitaciones</option>{% for key, label in tech_filter_options %}{% if key != "all" %}<option value="{{key}}" {% if tech == key %}selected{% endif %}>{{label}}</option>{% endif %}{% endfor %}</select>
-  <select aria-label="Estado" name="status"><option value="">Todos los estados</option>{% for x in statuses %}<option value="{{x}}" {% if x == status %}selected{% endif %}>{{x}}</option>{% endfor %}</select>
-  <select aria-label="Cliente o institución solicitante" name="institution"><option value="">Todos los clientes</option>{% for x in institutions %}<option value="{{x}}" {% if x == inst %}selected{% endif %}>{{x}}</option>{% endfor %}</select>
-  <select aria-label="Prioridad comercial" name="priority"><option value="">Todas las prioridades</option>{% for x in ['Alta','Media','Baja'] %}<option value="{{x}}" {% if priority|default('') == x %}selected{% endif %}>Prioridad {{x}}</option>{% endfor %}</select>
-  <select aria-label="Filas por página" name="per_page">{% for n in [25,50,100] %}<option value="{{n}}" {% if per_page == n %}selected{% endif %}>{{n}} por página</option>{% endfor %}</select>
-  <select name="sort" aria-label="Ordenar resultados">{% for val,label in sort_options %}<option value="{{val}}" {% if sort == val %}selected{% endif %}>{{label}}</option>{% endfor %}</select>
-  {% for k,v in column.items() %}{% if v %}<input type="hidden" name="{{k}}" value="{{v}}">{% endif %}{% endfor %}
-  <button>Filtrar</button>
+<section class="panel">
+ <h1>Explorar licitaciones</h1>
+ <p class="muted small">Una búsqueda para todo el catálogo; los filtros específicos de cada columna son opcionales.</p>
+ <form id="filters-form" method="get" action="{{url_for('index')}}">
+  <div class="search-row">
+   <label class="field">Buscar en todas las oportunidades
+    <input name="q" aria-label="Buscar licitaciones" value="{{q}}" placeholder="Ej.: Microsoft 365, SOC, institución, procedimiento" autocomplete="off">
+   </label>
+   <label class="field">Perfil comercial
+    <select name="tech" aria-label="Perfil de licitaciones">
+     <option value="noventiq" {% if tech=='noventiq' %}selected{% endif %}>Tecnología · Noventiq</option>
+     <option value="security_all" {% if tech=='security_all' %}selected{% endif %}>Seguridad TI (general)</option>
+     <option value="all" {% if tech=='all' %}selected{% endif %}>Todas las licitaciones</option>
+     {% if tech not in ['noventiq','security_all','all'] %}<option value="{{tech}}" selected>{{dict(tech_filter_options|default([])).get(tech,tech)}}</option>{% endif %}
+    </select>
+   </label>
+   <button type="submit">Buscar</button>
+   <button type="button" id="toggle-columns" class="secondary" aria-controls="column-filter-row" aria-expanded="{{'true' if column_active else 'false'}}">Filtros por columna <span class="filter-count">{{column_filter_count|default(0)}}</span></button>
+  </div>
+  <div class="filter-tools">
+   <label class="mini-field">Ordenar <select name="sort" aria-label="Ordenar resultados">{% for key,label in sort_options %}<option value="{{key}}" {% if sort==key %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
+   <label class="mini-field">Mostrar <select name="per_page" aria-label="Filas por página">{% for n in [25,50,100] %}<option value="{{n}}" {% if per_page==n %}selected{% endif %}>{{n}} por página</option>{% endfor %}</select></label>
+   <a class="btn secondary push" href="{{url_for('export_csv',**query_args)}}">Exportar CSV</a>
+   <a class="btn secondary" href="{{url_for('index',tech='noventiq')}}">Limpiar filtros</a>
+  </div>
  </form>
- <nav class="admin quick-areas" aria-label="Filtros rápidos de seguridad"><span class="muted small">Seguridad:</span><a href="{{url_for('index',tech='soc')}}">SOC</a><a href="{{url_for('index',tech='security_operations')}}">SecOps</a><a href="{{url_for('index',tech='siem')}}">SIEM / SOAR</a><a href="{{url_for('index',tech='managed_security')}}">MDR / MSSP</a><a href="{{url_for('index',tech='iam')}}">IAM / PAM</a><a href="{{url_for('index',tech='vulnerability_management')}}">Vulnerabilidades</a><a href="{{url_for('index',tech='security_governance')}}">Gobierno de seguridad</a></nav>
- <div class="toolrow" style="margin-top:12px"><a class="btn secondary" href="{{url_for('index',q=q,status=status,institution=inst,tech='noventiq',priority=priority|default(''),per_page=per_page)}}">Ver solo oportunidades TI (Noventiq)</a><span class="muted">Filtrado por palabras clave en el servicio solicitado; revisá el pliego antes de ofertar.</span><a class="btn secondary download" href="{{url_for('export_csv',**query_args)}}">Descargar CSV filtrado</a></div>
+ {% if active_chips %}<nav class="active-filters" aria-label="Filtros activos"><span class="tiny">Aplicados:</span>{% for chip in active_chips %}<a class="chip" href="{{chip.url}}" title="Quitar filtro"><span>{{chip.label}}: {{chip.value}}</span>×</a>{% endfor %}</nav>{% endif %}
 </section>
-{% if u.admin %}
-<section class="panel" style="margin-top:15px">
- <h2>Sincronización SICOP</h2>
- <p class="muted">Cada página se almacena completa, se clasifica automáticamente por tecnología y prioridad, y luego el panel muestra solo las oportunidades relevantes. Los avances quedan guardados en PostgreSQL.</p>
- <div class="info small">
-   {% if sync_state.next_page > 1 %}<strong>En progreso:</strong> siguiente página {{sync_state.next_page}}{% if sync_state.total_pages %} de {{sync_state.total_pages}}{% endif %}.
-   {% else %}<strong>Listo para iniciar un recorrido desde la página 1.</strong>{% endif %}
-   {% if sync_state.total_results is not none %} · Resultados informados por SICOP: {{'{:,}'.format(sync_state.total_results)}}{% endif %}
-   {% if last_run %}<p>Último intento: <strong>{{last_run.status}}</strong> · {{last_run.imported}} filas · {{last_run.finished_at}}. {{last_run.message}}</p>{% endif %}
- </div>
- <div class="admin" style="margin-top:12px">
-  <button id="sync-all" type="button">Sincronizar todas las páginas</button>
-  <form method="post" action="{{url_for('manual_sync')}}"><button class="secondary">Solo siguiente bloque</button></form>
-  <form method="post" action="{{url_for('reset_sync')}}"><button class="secondary" onclick="return confirm('¿Reiniciar en página 1? Los registros guardados se conservarán.')">Reiniciar recorrido</button></form>
- </div>
- <p id="sync-progress" class="muted" role="status" aria-live="polite">Para el recorrido completo, mantené esta pestaña abierta. Si se interrumpe, el avance queda guardado.</p>
- <div class="admin" style="margin-top:12px"><form method="post" action="{{url_for('upload_csv')}}" enctype="multipart/form-data" class="admin"><input type="file" name="file" accept=".csv,text/csv" required><button class="secondary">Importar CSV oficial</button></form></div>
- <p class="source">La fecha de publicación no existe en las columnas habituales del reporte «Datos abiertos concursos»; se completa solo desde una fuente/CSV que la incluya. La tabla «Datos abiertos concursos» no equivale necesariamente a todas las licitaciones abiertas: contiene campos de adjudicación y depende de los filtros y datos publicados por SICOP.</p>
-</section>
-{% endif %}
-<section class="panel" style="margin-top:15px">
- <div class="pagination"><strong>{{'{:,}'.format(matched)}} registros encontrados</strong><span class="muted">Página {{page}} de {{pages}} · {{per_page}} por página</span></div>
- <p class="muted small">Filtros por columna: escribí o seleccioná lo que necesités y pulsá <strong>Aplicar filtros de tabla</strong>. Funcionan sobre <strong>toda la base PostgreSQL</strong>, no solo sobre las filas visibles. La fecha de publicación solo aparece si SICOP o el CSV oficial la proporciona; <strong>no</strong> se reemplaza por la fecha de sincronización.</p>
- <form id="column-filters" method="get" action="{{url_for('index')}}">
-   <input type="hidden" name="q" value="{{q}}">
-   <input type="hidden" name="tech" value="{{tech}}">
-   <input type="hidden" name="status" value="{{status}}">
-   <input type="hidden" name="institution" value="{{inst}}">
-   <input type="hidden" name="priority" value="{{priority}}">
-   <input type="hidden" name="per_page" value="{{per_page}}">
-   <input type="hidden" name="sort" value="{{sort}}">
- </form>
- <div class="toolrow" style="margin:12px 0">
-  <button type="submit" form="column-filters">Aplicar filtros de tabla</button>
-  <a class="btn secondary" href="{{url_for('index',q=q,tech=tech,status=status,institution=inst,priority=priority,per_page=per_page,sort=sort)}}">Limpiar filtros de columnas</a>
-  <span class="muted small">Deslizá la tabla horizontalmente para ver todos los campos.</span>
- </div>
+<section class="panel" id="resultados">
+ <div class="results-bar"><strong>{{'{:,}'.format(matched)}} licitaciones encontradas</strong><span class="muted small">Página {{page}} de {{pages}} · filtros aplicados a toda la base de datos</span></div>
+ <p class="table-hint">Deslizá horizontalmente para ver todas las columnas. Usá “Filtros por columna” para afinar cliente, fecha, prioridad, especialidad y monto.</p>
  <div class="scroll"><table class="tenders-table">
- <thead>
- <tr><th>Cliente / institución solicitante</th><th>Descripción de la licitación</th><th>Fecha de publicación</th><th>Prioridad Noventiq</th><th>Área tecnológica detectada</th><th>Número de procedimiento</th><th>Estado</th><th>Tipo de licitación</th><th>Monto reportado</th><th>Proveedor adjudicado</th></tr>
- <tr class="column-filters">
-  <th><input form="column-filters" name="client_contains" aria-label="Filtrar columna cliente" placeholder="Buscar cliente" value="{{column.client_contains}}"></th>
-  <th><input form="column-filters" name="description_contains" aria-label="Filtrar columna descripción" placeholder="Buscar servicio o producto" value="{{column.description_contains}}"></th>
-  <th class="date-filter"><label>Desde<input form="column-filters" name="published_from" type="date" aria-label="Publicado desde" value="{{column.published_from}}"></label><label>Hasta<input form="column-filters" name="published_to" type="date" aria-label="Publicado hasta" value="{{column.published_to}}"></label><label class="checkline"><input form="column-filters" name="publication_missing" type="checkbox" value="1" {% if column.publication_missing == '1' %}checked{% endif %}> Sin fecha</label></th>
-  <th><select form="column-filters" name="column_priority" aria-label="Filtrar columna prioridad"><option value="">Todas</option>{% for p in ['Alta','Media','Baja'] %}<option value="{{p}}" {% if column.column_priority == p %}selected{% endif %}>{{p}}</option>{% endfor %}</select></th>
-  <th><select form="column-filters" name="column_area" aria-label="Filtrar columna área tecnológica"><option value="">Todas las áreas</option>{% for key,label in area_options %}<option value="{{key}}" {% if column.column_area == key %}selected{% endif %}>{{label}}</option>{% endfor %}</select></th>
-  <th><input form="column-filters" name="procedure_contains" aria-label="Filtrar columna procedimiento" placeholder="2026LD..." value="{{column.procedure_contains}}"></th>
-  <th><input form="column-filters" name="state_contains" aria-label="Filtrar columna estado" placeholder="En recepción..." value="{{column.state_contains}}"></th>
-  <th><input form="column-filters" name="type_contains" aria-label="Filtrar columna tipo" placeholder="Licitación mayor..." value="{{column.type_contains}}"></th>
-  <th class="amount-filter"><input form="column-filters" name="amount_min" type="number" step="0.01" min="0" aria-label="Monto mínimo" placeholder="Mín." value="{{column.amount_min}}"><input form="column-filters" name="amount_max" type="number" step="0.01" min="0" aria-label="Monto máximo" placeholder="Máx." value="{{column.amount_max}}"></th>
-  <th><input form="column-filters" name="awardee_contains" aria-label="Filtrar columna adjudicatario" placeholder="Proveedor" value="{{column.awardee_contains}}"></th>
- </tr>
- </thead><tbody>
+ <thead><tr><th>Cliente / institución solicitante</th><th>Descripción de la licitación</th><th>Fecha de publicación</th><th>Prioridad Noventiq</th><th>Área tecnológica detectada</th><th>Número de procedimiento</th><th>Estado</th><th>Tipo de licitación</th><th>Monto reportado</th><th>Proveedor adjudicado</th></tr>
+ <tr id="column-filter-row" class="column-filters" {% if not column_active %}hidden{% endif %}>
+  <th><input form="filters-form" name="client_contains" aria-label="Filtrar columna cliente" placeholder="Nombre del cliente" value="{{column.client_contains|default('',true)}}"></th>
+  <th><input form="filters-form" name="description_contains" aria-label="Filtrar columna descripción" placeholder="Descripción contiene…" value="{{column.description_contains|default('',true)}}"></th>
+  <th><div class="range"><label>Desde<input form="filters-form" name="published_from" type="date" aria-label="Publicado desde" value="{{column.published_from|default('',true)}}"></label><label>Hasta<input form="filters-form" name="published_to" type="date" aria-label="Publicado hasta" value="{{column.published_to|default('',true)}}"></label><label class="checkline"><input form="filters-form" name="publication_missing" type="checkbox" value="1" {% if column.publication_missing=='1' %}checked{% endif %}> Sin fecha</label></div></th>
+  <th><select form="filters-form" name="column_priority" aria-label="Filtrar columna prioridad"><option value="">Todas las prioridades</option>{% for p in ['Alta','Media','Baja'] %}<option value="{{p}}" {% if column.column_priority==p or (not column.column_priority and priority==p) %}selected{% endif %}>{{p}}</option>{% endfor %}</select></th>
+  <th><label>Especialidad<select form="filters-form" name="column_area" aria-label="Filtrar columna área tecnológica"><option value="">Cualquier área</option>{% for key,label in area_options|default([]) %}<option value="{{key}}" {% if column.column_area==key %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label></th>
+  <th><input form="filters-form" name="procedure_contains" aria-label="Filtrar columna procedimiento" placeholder="Número de procedimiento" value="{{column.procedure_contains|default('',true)}}"></th>
+  <th><input form="filters-form" name="state_contains" aria-label="Filtrar columna estado" placeholder="Estado contiene…" value="{{column.state_contains|default(status,true)}}"></th>
+  <th><input form="filters-form" name="type_contains" aria-label="Filtrar columna tipo" placeholder="Tipo de licitación" value="{{column.type_contains|default('',true)}}"></th>
+  <th><div class="range"><input form="filters-form" name="amount_min" type="number" step="0.01" min="0" aria-label="Monto mínimo" placeholder="Monto mínimo" value="{{column.amount_min|default('',true)}}"><input form="filters-form" name="amount_max" type="number" step="0.01" min="0" aria-label="Monto máximo" placeholder="Monto máximo" value="{{column.amount_max|default('',true)}}"></div></th>
+  <th><input form="filters-form" name="awardee_contains" aria-label="Filtrar columna adjudicatario" placeholder="Proveedor" value="{{column.awardee_contains|default('',true)}}"></th>
+ </tr></thead><tbody>
  {% for r in rows %}<tr>
- <td style="min-width:180px"><span class="client">{{r.client_display|default(r.institution|default('Cliente no informado',true),true)}}</span></td>
- <td class="desc" style="min-width:250px" title="{{r.description|default('')}}"><strong>Servicio o compra solicitada</strong>{{r.summary|default(r.description|default('Descripción no disponible',true),true)}}</td>
- <td class="published"><strong>{{r.publication_display|default('No disponible',true)}}</strong>{% if not r.publication_date %}<small>Fuente sin fecha</small>{% endif %}</td>
- <td><span class="prio prio-{{r.it_priority|default('Baja',true)}}">{{r.it_priority or 'Sin clasificar'}}</span><div class="tiny">{{r.it_score or 0}}/100 relevancia</div></td>
- <td>{% for area in (r.tech_areas|default([]))[:3] %}<span class="badge area-badge">{{area}}</span>{% else %}<span class="muted">Sin categoría</span>{% endfor %}</td>
- <td>{{r.procedure_number}}</td>
- <td><span class="badge">{{r.status or 'Sin dato'}}</span></td>
- <td>{{r.procedure_type or 'No informado'}}</td>
- <td>{{r.currency or ''}} {{'{:,.2f}'.format(r.amount) if r.amount is not none else 'No informado'}}</td>
- <td>{{r.awardee or 'No informado'}}</td>
- </tr>
- {% else %}<tr><td colspan="10">No hay oportunidades para estos filtros. Revisá si la fuente tiene fechas de publicación o elegí «Todas las licitaciones».</td></tr>{% endfor %}
+  <td><span class="client">{{r.client_display|default(r.institution|default('Cliente no informado',true),true)}}</span></td>
+  <td class="desc" title="{{r.description|default('')}}"><span class="summary">{{r.summary|default(r.description|default('Descripción no disponible',true),true)}}</span></td>
+  <td class="published"><strong>{{r.publication_display|default('No disponible',true)}}</strong>{% if not r.publication_date %}<small>Fuente sin fecha</small>{% endif %}</td>
+  <td><span class="prio prio-{{r.it_priority|default('Baja',true)}}">{{r.it_priority or 'Sin clasificar'}}</span><div class="tiny">{{r.it_score or 0}}/100 relevancia</div></td>
+  <td>{% for area in (r.tech_areas|default([]))[:3] %}<span class="badge">{{area}}</span>{% else %}<span class="muted">Sin categoría</span>{% endfor %}</td>
+  <td>{{r.procedure_number}}</td>
+  <td><span class="badge">{{r.status or 'Sin dato'}}</span></td>
+  <td>{{r.procedure_type or 'No informado'}}</td>
+  <td>{{r.currency or ''}} {{'{:,.2f}'.format(r.amount) if r.amount is not none else 'No informado'}}</td>
+  <td>{{r.awardee or 'No informado'}}</td>
+ </tr>{% else %}<tr><td colspan="10">No hay oportunidades para los filtros actuales. Probá quitando algún filtro o eligiendo «Todas las licitaciones».</td></tr>{% endfor %}
  </tbody></table></div>
- <nav class="pagination" aria-label="Navegación de resultados"><div class="pages">
-  {% if page > 1 %}<a href="{{url_for('index',page=1,**query_args)}}">Primera</a><a href="{{url_for('index',page=page-1,**query_args)}}">Anterior</a>{% endif %}
-  {% for n in page_numbers %}{% if n == page %}<span class="active">{{n}}</span>{% else %}<a href="{{url_for('index',page=n,**query_args)}}">{{n}}</a>{% endif %}{% endfor %}
-  {% if page < pages %}<a href="{{url_for('index',page=page+1,**query_args)}}">Siguiente</a><a href="{{url_for('index',page=pages,**query_args)}}">Última</a>{% endif %}
- </div></nav>
+ <div class="pagination"><nav class="pages" aria-label="Páginas">
+  {% if page>1 %}<a href="{{url_for('index',page=1,**query_args)}}">Primera</a><a href="{{url_for('index',page=page-1,**query_args)}}">Anterior</a>{% endif %}
+  {% for n in page_numbers %}{% if n==page %}<span class="active">{{n}}</span>{% else %}<a href="{{url_for('index',page=n,**query_args)}}">{{n}}</a>{% endif %}{% endfor %}
+  {% if page<pages %}<a href="{{url_for('index',page=page+1,**query_args)}}">Siguiente</a><a href="{{url_for('index',page=pages,**query_args)}}">Última</a>{% endif %}
+ </nav><span class="tiny">Las fechas solo se muestran cuando SICOP o el CSV las proporcionan.</span></div>
 </section>
-
-</main>
 {% if u.admin %}
+<section class="panel admin-tools"><details>
+ <summary>Administración · Sincronización SICOP {% if last_run %}<span class="tiny">— Último intento: {{last_run.status}}</span>{% endif %}</summary>
+ <p class="muted small" style="margin-top:12px">La sincronización conserva todos los registros y clasifica las oportunidades de Noventiq al guardarlas. La fuente «Datos abiertos concursos» puede no incluir fechas de publicación ni todas las licitaciones abiertas.</p>
+ <div class="info">{% if sync_state.next_page>1 %}Continuar desde página {{sync_state.next_page}}{% if sync_state.total_pages %} de {{sync_state.total_pages}}{% endif %}.{% else %}Recorrido listo para iniciar desde página 1.{% endif %}{% if sync_state.total_results is not none %} · Total informado por SICOP: {{sync_state.total_results}}{% endif %}{% if last_run %}<br>Último intento: {{last_run.imported}} filas · {{last_run.finished_at}} · {{last_run.message}}{% endif %}</div>
+ <div class="admin-actions">
+  <button id="sync-all" type="button">Sincronizar todas las páginas</button>
+  <form method="post" action="{{url_for('manual_sync')}}"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button class="secondary">Solo siguiente bloque</button></form>
+  <form method="post" action="{{url_for('reset_sync')}}"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button class="secondary" onclick="return confirm('¿Reiniciar recorrido? No se borrarán licitaciones.')">Reiniciar recorrido</button></form>
+ </div>
+ <p id="sync-progress" class="muted small" role="status" aria-live="polite">Para completar el recorrido mantené esta pestaña abierta.</p>
+ <form method="post" action="{{url_for('upload_csv')}}" enctype="multipart/form-data" class="admin-actions"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input type="file" name="file" accept=".csv,text/csv" aria-label="Archivo CSV oficial" required><button class="secondary">Importar CSV oficial</button></form>
+</details></section>
+{% endif %}
+</main>
 <script>
 (() => {
+  const toggle = document.getElementById('toggle-columns');
+  const row = document.getElementById('column-filter-row');
+  if (toggle && row) toggle.addEventListener('click', () => {
+    row.hidden = !row.hidden;
+    toggle.setAttribute('aria-expanded', String(!row.hidden));
+    if (!row.hidden) row.querySelector('input,select')?.focus({preventScroll:true});
+  });
+  const form = document.getElementById('filters-form');
+  if (form) form.addEventListener('submit', () => {
+    // Blank controls must not become new filters. Keep the GET URL clean.
+    for (const control of Array.from(form.elements)) {
+      if (control.name && !control.value && control.type !== 'submit') control.disabled = true;
+    }
+  });
+{% if u.admin %}
   const button = document.getElementById('sync-all');
   const output = document.getElementById('sync-progress');
-  button.addEventListener('click', async () => {
+  if (button && output) button.addEventListener('click', async () => {
     if (button.disabled) return;
     button.disabled = true;
     button.textContent = 'Sincronizando…';
-    let blocks = 0, totalProcessed = 0;
+    let blocks = 0, processed = 0;
     try {
       while (blocks < 1000) {
-        const response = await fetch("{{url_for('api_manual_sync')}}", {
-          method: 'POST', credentials: 'same-origin', headers: {'Accept': 'application/json'}
-        });
+        const response = await fetch("{{url_for('api_manual_sync')}}", {method:'POST', credentials:'same-origin', headers:{'Accept':'application/json','X-CSRF-Token':{{csrf_token|tojson}}}});
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || `Error HTTP ${response.status}`);
-        blocks += 1;
-        totalProcessed += data.processed || 0;
-        output.textContent = `Bloques: ${blocks} · Filas procesadas: ${totalProcessed} · ` +
-          (data.status === 'complete' ? 'Recorrido terminado.' : `Siguiente página: ${data.next_page} de ${data.total_pages || '?'}`);
+        blocks++;
+        processed += data.processed || 0;
+        output.textContent = `Bloques: ${blocks} · Filas procesadas: ${processed} · ` + (data.status==='complete' ? 'Recorrido completo.' : `Siguiente página: ${data.next_page} de ${data.total_pages || '?'}`);
         if (data.status === 'complete') { window.location.reload(); return; }
-        if (!data.pages_processed) throw new Error('No se avanzó ninguna página. Verificá la conexión con SICOP.');
+        if (!data.pages_processed) throw new Error('No se avanzó ninguna página. Revisá el acceso a SICOP.');
       }
-      throw new Error('Se alcanzó el límite de bloques; podés continuar presionando el botón otra vez.');
+      throw new Error('Se llegó al límite de bloques. Podés reanudar.');
     } catch (error) {
-      output.textContent = `Sincronización pausada: ${error.message}. El avance anterior se conserva.`;
+      output.textContent = `Sincronización pausada: ${error.message}. Se conservó el avance.`;
       button.disabled = false;
       button.textContent = 'Reanudar sincronización';
     }
   });
+{% endif %}
 })();
 </script>
-{% endif %}
 </body></html>

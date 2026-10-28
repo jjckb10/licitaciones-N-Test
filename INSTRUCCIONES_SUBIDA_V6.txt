@@ -1,0 +1,19 @@
+SICOP Opportunity Hub V6 - Administración de usuarios
+
+Si GitHub ya tiene V5, subí solo el ZIP de actualización V6. Conservá las rutas de los archivos:
+
+- app/main.py
+- app/templates/index.html
+- app/templates/login.html
+- app/templates/users.html (nuevo)
+- tests/test_v6_users.py (nuevo)
+- tests/test_v6_users_static.py (nuevo)
+- README.md
+- README_RENDER.md
+- V6_USUARIOS_DESPLIEGUE.md (nuevo)
+
+No borres las variables DATABASE_URL o SECRET_KEY de Render. Hacé merge y dejá que Render despliegue el commit. Después volvé a iniciar sesión (las sesiones anteriores quedan invalidadas), ingresá al panel como administrador y hacé clic en "Administrar usuarios".
+
+Las cuentas antiguas y los registros SICOP se conservan. Las contraseñas y roles de cuentas existentes dejan de ser sobreescritos desde las variables de Render. Para editar accesos usá el nuevo panel.
+
+Importante: el GitHub conectado desde ChatGPT sigue bloqueando la creación de ramas con error 403. Los archivos del ZIP aún no están publicados desde ChatGPT.

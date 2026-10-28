@@ -150,9 +150,17 @@ TECH_AREAS = OrderedDict([
     )),
 ])
 
+# Broad security view: includes SOC/SecOps even if the individual description
+# does not match the general 'cybersecurity' keyword group.
+SECURITY_KEYS = (
+    'cybersecurity', 'soc', 'security_operations', 'siem', 'iam',
+    'managed_security', 'vulnerability_management', 'security_governance',
+)
+
 TECH_FILTER_OPTIONS = (
     ('all', 'Todas las licitaciones'),
     ('noventiq', 'Todas las oportunidades TI · perfil Noventiq'),
+    ('security_all', 'Seguridad TI · todas las especialidades'),
     ('microsoft', 'Microsoft / Microsoft 365 / Azure'),
     ('google', 'Google / Workspace / Google Cloud'),
     ('aws', 'Amazon Web Services (AWS)'),
@@ -173,7 +181,7 @@ TECH_FILTER_OPTIONS = (
 )
 
 AREA_LABELS = {key: label for key, label in TECH_FILTER_OPTIONS
-               if key not in ('all', 'noventiq')}
+               if key not in ('all', 'noventiq', 'security_all')}
 
 
 def selected_filter(selected):
@@ -185,7 +193,12 @@ def terms_for(selected):
     selected = selected_filter(selected)
     if selected == 'all':
         return ()
-    areas = TECH_AREAS.values() if selected == 'noventiq' else [TECH_AREAS[selected]]
+    if selected == 'noventiq':
+        areas = TECH_AREAS.values()
+    elif selected == 'security_all':
+        areas = (TECH_AREAS[key] for key in SECURITY_KEYS)
+    else:
+        areas = [TECH_AREAS[selected]]
     return tuple(dict.fromkeys(phrase.lower() for terms in areas for phrase in terms))
 
 
@@ -272,6 +285,14 @@ def classified_sql(selected):
         return '', {}
     if selected == 'noventiq':
         return 'is_it = 1', {}
+    if selected == 'security_all':
+        parts = []
+        params = {}
+        for idx, key in enumerate(SECURITY_KEYS):
+            param = f'security_area_{idx}'
+            parts.append(f"COALESCE(it_labels,'') LIKE :{param}")
+            params[param] = '%' + json.dumps(AREA_LABELS[key], ensure_ascii=False) + '%'
+        return '(' + ' OR '.join(parts) + ')', params
     label = AREA_LABELS[selected]
     return 'COALESCE(it_labels, \'\') LIKE :tech_area', {
         'tech_area': '%' + json.dumps(label, ensure_ascii=False) + '%',

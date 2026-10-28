@@ -75,3 +75,7 @@ con una aprobación automática de participación o disponibilidad de ofertas.
 ## Actualización V5
 
 La migración automática agrega `tenders.publication_date` y `tenders.classification_version` sin eliminar datos existentes. Las nuevas categorías de SOC, SecOps, SIEM, IAM, MDR/MSSP, vulnerabilidades y gobierno de seguridad se recalculan por lotes. No hay variables de entorno nuevas obligatorias. Para que se muestre una fecha de publicación debe existir explícitamente en la fuente o un CSV oficial compatible (ver `V5_DESPLIEGUE.md`).
+
+## V6 — Gestión de usuarios
+
+No se modifican credenciales ni datos existentes al actualizar. La pantalla `/admin/users` permite gestionar nuevas cuentas y contraseñas sin editar Render. Se añade migración aditiva a `users`, protección CSRF y revocación de sesiones por cambios de rol/contraseña/estado. **Tras el despliegue volvé a iniciar sesión**. Conservá el `SECRET_KEY` de Render y no modifiques `DATABASE_URL`. Guía completa: `V6_USUARIOS_DESPLIEGUE.md`.

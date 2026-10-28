@@ -1,4 +1,16 @@
-# SICOP Opportunity Hub V4 — Noventiq
+# SICOP Opportunity Hub V6.1 — Noventiq
+
+## V6.1 — Interfaz de búsqueda simplificada (28 oct 2026)
+
+- **Un solo formulario de búsqueda**: texto libre, perfil Noventiq / Seguridad TI / Todas las licitaciones, orden y filas por página. Se eliminaron los formularios duplicados y accesos rápidos redundantes.
+- **Filtros por columna opcionales**: el botón «Filtros por columna» despliega la fila de filtros dentro de la tabla. Ahí se puede refinar por cliente, descripción, fechas, prioridad, especialidad, número, estado, tipo, monto y adjudicatario. Los controles pertenecen al mismo formulario de búsqueda; un solo «Buscar» aplica todo.
+- **Filtros aplicados visibles**: los chips permiten eliminar un filtro concreto sin cambiar los demás. «Limpiar filtros» restaura la vista predeterminada Noventiq.
+- **Seguridad TI (general)**: agrupa SOC, SecOps, SIEM/SOAR, IAM/PAM, MSSP/MDR, gestión de vulnerabilidades, gobierno de seguridad y ciberseguridad general. La selección no limita ni altera las filas guardadas.
+- **Acciones administrativas menos invasivas**: la sincronización se mantiene en una sección desplegable, y Administración de usuarios sigue accesible desde el encabezado.
+- La tabla, CSV y API conservan los filtros aplicados y usan PostgreSQL; **sin cambios de esquema**, contraseñas ni variables de Render.
+
+Para desplegar V6.1, consulta [V6_1_INTERFAZ_DESPLIEGUE.md](V6_1_INTERFAZ_DESPLIEGUE.md). Esta mejora de presentación **no resuelve ni oculta** errores de acceso, paginación o fechas faltantes de SICOP.
+
 
 
 ## Radar comercial Noventiq — novedades V4
@@ -128,3 +140,7 @@ Se incorpora un campo `publication_date` con fecha **real de publicación si apa
 Debajo de cada encabezado de la tabla se encuentran los filtros específicos para cliente, descripción, fechas, prioridad, SOC/SecOps y otras áreas, procedimiento, estado, tipo, monto y proveedor. Pueden combinarse y se aplican a todos los registros almacenados; también afectan la API paginada y el CSV filtrado.
 
 Nuevas categorías: SOC, SecOps/operaciones de seguridad, SIEM/SOAR, IAM/PAM, MDR/MSSP, vulnerabilidades/pentesting y SGSI/gobierno de seguridad. **Más detalles en `V5_DESPLIEGUE.md`.**
+
+## V6 — Administración de usuarios y contraseñas
+
+Los administradores tienen el botón **Administrar usuarios**, ubicado en el encabezado y el área de sincronización. Desde `/admin/users` pueden crear usuarios, restablecer contraseñas, asignar roles y activar/desactivar cuentas. La base `users` en PostgreSQL es la autoridad después de la migración; las variables de Render solo sirven como arranque de instalaciones nuevas. Se preservan todas las cuentas anteriores. Requiere iniciar sesión nuevamente después del despliegue. Leer `V6_USUARIOS_DESPLIEGUE.md`.

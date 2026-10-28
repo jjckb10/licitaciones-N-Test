@@ -86,7 +86,9 @@ def test_technology_filters_are_visible_and_navigation_preserves_selection():
         tech_filter_options=TECH_FILTER_OPTIONS,
         page=2, pages=3, page_numbers=[1, 2, 3], per_page=50, matched=120,
     )
-    assert 'Ver solo oportunidades TI (Noventiq)' in page
+    assert 'Perfil comercial' in page
+    assert 'Filtros por columna' in page
+    assert 'Ver solo oportunidades TI (Noventiq)' not in page
     assert 'Microsoft / Microsoft 365 / Azure' in page
     assert 'Área tecnológica detectada' in page
     assert 'tech=microsoft' in page   # Pagination and CSV must retain this selection.
