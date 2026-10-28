@@ -17,7 +17,8 @@ from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.sicop_source import SICOPSourceError, get_page, make_session, normalize
+from app.sicop_source import (SICOPSourceError, get_page, make_session, normalize,
+                              canonical_procedure_number)
 from app.technology import (TECH_FILTER_OPTIONS, matched_areas,
                             selected_filter, classified_sql, classify_opportunity)
 from app.presentation import buyer_name, clean_description, brief_description
@@ -397,16 +398,24 @@ def upsert_rows(rows, conn=None):
     now = utcnow()
     processed = []
     for row in rows:
-        procedure = value(row, 'Número procedimiento', 'Número de procedimiento',
-                          'procedure_number')
+        raw_procedure = value(row, 'Número procedimiento', 'Número de procedimiento',
+                              'procedure_number')
+        if not raw_procedure:
+            continue  # Blank/non-procedure CSV rows are ignored as before.
+        procedure = canonical_procedure_number(raw_procedure)
+        if not procedure:
+            raise SICOPSourceError(
+                'Número de procedimiento inválido o ambiguo en la fila '
+                f'{len(processed) + 1} (longitud recibida: {len(raw_procedure)}). '
+                'Revisá el HTML o los encabezados del CSV de SICOP. '
+                'No se avanzó ni se truncó el dato.')
         item = value(row, 'Partida', 'item') or '0'
         line = value(row, 'Número de línea', 'Numero linea', 'line_number') or '0'
-        if not procedure:
-            continue
         record_id = f'{procedure}|{item}|{line}'
-        # Retain the original id scheme so existing Render/PostgreSQL records are updated.
+        # Preserve original IDs used by older installations.
         if len(record_id) > 220:
-            continue
+            raise SICOPSourceError('Partida o línea demasiado larga en el procedimiento '
+                                   f'{procedure}; verificá la alineación de la tabla SICOP.')
         description = clean_description(value(row, 'Descripción',
                                         'Descripción del procedimiento',
                                         'Objeto contractual', 'Objeto de contratación',
@@ -417,6 +426,13 @@ def upsert_rows(rows, conn=None):
                                  'Comprador', 'institution', 'client_name'))
         object_kind = value(row, 'Clasificación objeto', 'object_classification')
         scoring = classify_opportunity(description, object_kind)
+        currency = value(row, 'Moneda', 'currency')
+        status = value(row, 'Estado de procedimiento', 'status')
+        if len(currency) > 20 or len(status) > 180:
+            bad_field = 'Moneda' if len(currency) > 20 else 'Estado de procedimiento'
+            raise SICOPSourceError(
+                f'Campo {bad_field} demasiado largo en {procedure}. '
+                'El formato del reporte SICOP pudo cambiar; se conservó el avance anterior.')
         processed.append({
             'id': record_id, 'procedure_number': procedure,
             'description': description, 'institution': buyer,
@@ -425,11 +441,11 @@ def upsert_rows(rows, conn=None):
             'object_classification': object_kind,
             'item': item, 'line_number': line,
             'awardee': value(row, 'Adjudicatario', 'awardee'),
-            'currency': value(row, 'Moneda', 'currency'),
+            'currency': currency,
             'amount': number(value(row, 'Monto', 'amount')),
             'exchange_rate': number(value(row, 'Tipo de cambio', 'exchange_rate')),
             'awarded_crc': number(value(row, 'Monto adjudicado en colones', 'awarded_crc')),
-            'status': value(row, 'Estado de procedimiento', 'status'),
+            'status': status,
             'source_url': SICOP_OPEN_DATA_URL, 'first_seen': now, 'last_seen': now,
             'publication_date': date_from_row(row),
             'classification_version': CLASSIFICATION_VERSION,

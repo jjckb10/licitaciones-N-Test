@@ -49,6 +49,18 @@ PROCEDURE_HEADERS = {'numero_procedimiento', 'numero_de_procedimiento',
                      'procedure_number'}
 # Proc numbers like 2026LD-000123-0006400001, 2025XE-000853-0000400001.
 PROCEDURE = re.compile(r'\b(?:19|20)\d{2}[A-Z]{2,4}-\d{4,8}-\d{8,12}\b', re.I)
+
+
+def canonical_procedure_number(value):
+    """Extract one SICOP identifier, never save an entire HTML cell as its ID.
+
+    Some SICOP cells contain an ID plus a label or extra display text. Their
+    raw content can exceed the DB's VARCHAR(140) and must not be saved as the
+    procedure number. Multiple distinct/duplicated IDs are ambiguous.
+    """
+    candidate = unicodedata.normalize('NFKC', str(value or '')).upper()
+    matches = PROCEDURE.findall(candidate)
+    return matches[0].upper() if len(matches) == 1 else ''
 PAGE_META = re.compile(
     r'(\d[\d.,]*)\s+resultados\s*\[\s*(\d+)\s+de\s+(\d+)\s+p[aá]ginas?\s*\]',
     re.I,
@@ -91,8 +103,15 @@ def _column_headers(trs):
 
 
 def _valid_record(record):
-    p = next((v for k, v in record.items() if normalize(k) in PROCEDURE_HEADERS), '')
-    return bool(PROCEDURE.search(p))
+    for key, raw in record.items():
+        if normalize(key) in PROCEDURE_HEADERS:
+            identifier = canonical_procedure_number(raw)
+            if not identifier:
+                return False
+            # Canonicalize *before* creating the page fingerprint or SQL rows.
+            record[key] = identifier
+            return True
+    return False
 
 
 def _extract_table(table):
