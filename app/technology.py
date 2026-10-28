@@ -9,6 +9,9 @@ bound parameters and SQL functions available in both SQLite and PostgreSQL.
 """
 
 from collections import OrderedDict
+import re
+
+CLASSIFICATION_VERSION = 5
 
 # Distinctive phrases are preferred to broad words like "red", "TI", "servicio",
 # "Google" in isolation where it would cause obvious false matches. All terms
@@ -47,6 +50,64 @@ TECH_AREAS = OrderedDict([
         'edr', 'xdr', 'zero trust', 'autenticación multifactor',
         'autenticacion multifactor', 'mfa', 'protección de endpoints',
         'proteccion de endpoints',
+    )),
+    # Specific security domains for commercial screening. Acronyms are matched
+    # at word boundaries below ("SOC" must not match "sociedad").
+    ('soc', (
+        'soc', 'security operations center', 'centro de operaciones de seguridad',
+        'centro de operaciones de ciberseguridad', 'soc 24x7', 'soc 24/7',
+        'soc as a service', 'socaaS',
+    )),
+    ('security_operations', (
+        'secops', 'security operations', 'operaciones de seguridad',
+        'administración de seguridad de la información',
+        'administracion de seguridad de la informacion',
+        'gestión de operaciones de seguridad', 'gestion de operaciones de seguridad',
+        'administración de operaciones de seguridad',
+        'administracion de operaciones de seguridad',
+        'administración de seguridad informática',
+        'administracion de seguridad informatica',
+        'administración de seguridad de redes',
+        'administracion de seguridad de redes',
+        'monitoreo de seguridad', 'monitorización de seguridad',
+        'monitoreo de eventos de seguridad', 'detección y respuesta a incidentes',
+        'deteccion y respuesta a incidentes', 'respuesta a incidentes de seguridad',
+        'gestión de incidentes de seguridad', 'gestion de incidentes de seguridad',
+    )),
+    ('siem', (
+        'siem', 'soar', 'correlación de eventos', 'correlacion de eventos',
+        'gestión de eventos e información de seguridad',
+        'gestion de eventos e informacion de seguridad', 'splunk',
+        'microsoft sentinel', 'sentinelone', 'qradar', 'wazuh',
+    )),
+    ('iam', (
+        'iam', 'pam', 'identidad y acceso', 'gestión de identidades',
+        'gestion de identidades', 'gestión de accesos', 'gestion de accesos',
+        'acceso privilegiado', 'privileged access management',
+        'identity and access management', 'entra id', 'single sign on', 'sso',
+    )),
+    ('managed_security', (
+        'mssp', 'mdr', 'managed detection and response',
+        'servicios administrados de seguridad', 'servicios gestionados de seguridad',
+        'seguridad administrada', 'seguridad gestionada',
+        'monitoreo de ciberseguridad 24/7', 'monitoreo 24x7 de seguridad',
+    )),
+    ('vulnerability_management', (
+        'gestión de vulnerabilidades', 'gestion de vulnerabilidades',
+        'análisis de vulnerabilidades', 'analisis de vulnerabilidades',
+        'evaluación de vulnerabilidades', 'evaluacion de vulnerabilidades',
+        'pentest', 'pruebas de penetración', 'pruebas de penetracion',
+        'hacking ético', 'hacking etico', 'ethical hacking',
+        'auditoría de seguridad informática', 'auditoria de seguridad informatica',
+    )),
+    ('security_governance', (
+        'gobierno de seguridad de la información',
+        'gobierno de seguridad de la informacion',
+        'gobernanza de ciberseguridad',
+        'iso 27001', 'iso 27002', 'nist cybersecurity', 'nist csf',
+        'sgsi', 'gestión de riesgos de seguridad',
+        'gestion de riesgos de seguridad', 'continuidad de ciberseguridad',
+        'cumplimiento de ciberseguridad',
     )),
     ('hardware', (
         'hardware', 'computadora', 'computadoras', 'computador portátil',
@@ -97,7 +158,14 @@ TECH_FILTER_OPTIONS = (
     ('aws', 'Amazon Web Services (AWS)'),
     ('cloud', 'Cloud y servicios de nube'),
     ('licensing', 'Licencias y suscripciones de software'),
-    ('cybersecurity', 'Ciberseguridad'),
+    ('cybersecurity', 'Ciberseguridad general'),
+    ('soc', 'SOC · Centro de Operaciones de Seguridad'),
+    ('security_operations', 'SecOps · Operaciones y administración de seguridad'),
+    ('siem', 'SIEM / SOAR / monitoreo de eventos'),
+    ('iam', 'IAM / PAM / gestión de identidades'),
+    ('managed_security', 'MDR / MSSP · Seguridad administrada'),
+    ('vulnerability_management', 'Vulnerabilidades / pentesting'),
+    ('security_governance', 'Gobierno y gestión de seguridad'),
     ('hardware', 'Hardware y equipos'),
     ('networking', 'Redes e infraestructura'),
     ('software', 'Software y desarrollo'),
@@ -141,17 +209,30 @@ def technology_sql(selected):
     return '(' + ' OR '.join(fragments) + ')', params
 
 
+
+def _matches_term(document, phrase):
+    phrase = phrase.lower().strip()
+    if not phrase:
+        return False
+    # Word boundaries are particularly important for short security acronyms.
+    prefix = r'(?<!\w)' if phrase[0].isalnum() else ''
+    suffix = r'(?!\w)' if phrase[-1].isalnum() else ''
+    return re.search(prefix + re.escape(phrase) + suffix, document) is not None
+
 def matched_areas(description, object_classification=''):
     """Informational category labels to accompany each matching result."""
     document = f'{description or ""} {object_classification or ""}'.lower()
     return [AREA_LABELS[key] for key, terms in TECH_AREAS.items()
-            if any(phrase.lower() in document for phrase in terms)]
+            if any(_matches_term(document, phrase) for phrase in terms)]
 
 # Transparent, rules-based commercial prioritization; no automatic claim of
 # eligibility, real-time opening, budget, or deadline is made.
 AREA_WEIGHTS = {
     'microsoft': 32, 'google': 29, 'aws': 30, 'cloud': 22,
-    'licensing': 27, 'cybersecurity': 25, 'hardware': 21,
+    'licensing': 27, 'cybersecurity': 25,
+    'soc': 55, 'security_operations': 43, 'siem': 44, 'iam': 38,
+    'managed_security': 50, 'vulnerability_management': 35,
+    'security_governance': 33, 'hardware': 21,
     'networking': 17, 'software': 19, 'it_services': 17,
 }
 
@@ -165,7 +246,7 @@ def classify_opportunity(description, object_classification=''):
     labels = matched_areas(description, object_classification)
     raw = f'{description or ""} {object_classification or ""}'.lower()
     keys = [key for key, terms in TECH_AREAS.items()
-            if any(word.lower() in raw for word in terms)]
+            if any(_matches_term(raw, word) for word in terms)]
     if not keys:
         return {'is_it': 0, 'it_score': 0, 'it_priority': 'No aplica',
                 'it_labels': [], 'it_reasons': []}

@@ -20,6 +20,8 @@ from app.sicop_source import SICOPSourceError, get_page, make_session, normalize
 from app.technology import (TECH_FILTER_OPTIONS, matched_areas,
                             selected_filter, classified_sql, classify_opportunity)
 from app.presentation import buyer_name, clean_description, brief_description
+from app.publication import date_from_row, display_publication_date, parse_publication_date
+from app.technology import AREA_LABELS, CLASSIFICATION_VERSION
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'development-only-change-me')
@@ -56,8 +58,9 @@ DDL = [
        procedure_type TEXT,modality TEXT,object_classification TEXT,item TEXT,
        line_number TEXT,awardee TEXT,currency VARCHAR(20),amount DOUBLE PRECISION,
        exchange_rate DOUBLE PRECISION,awarded_crc DOUBLE PRECISION,status VARCHAR(180),
-       source_url TEXT,first_seen TEXT,last_seen TEXT,
-       is_it INTEGER,it_score INTEGER,it_priority VARCHAR(20),it_labels TEXT)''',
+       source_url TEXT,first_seen TEXT,last_seen TEXT, publication_date VARCHAR(10),
+       is_it INTEGER,it_score INTEGER,it_priority VARCHAR(20),it_labels TEXT,
+       classification_version INTEGER)''',
     '''CREATE TABLE IF NOT EXISTS sync_runs(id BIGSERIAL PRIMARY KEY,started_at TEXT,
        finished_at TEXT,status VARCHAR(40),imported INTEGER,message TEXT)''',
     '''CREATE TABLE IF NOT EXISTS sync_state(id INTEGER PRIMARY KEY,next_page INTEGER NOT NULL,
@@ -70,11 +73,11 @@ DDL = [
 UPSERT = text('''INSERT INTO tenders(id,description,procedure_number,institution,
     procedure_type,modality,object_classification,item,line_number,awardee,currency,
     amount,exchange_rate,awarded_crc,status,source_url,first_seen,last_seen,
-    is_it,it_score,it_priority,it_labels)
+    is_it,it_score,it_priority,it_labels,publication_date,classification_version)
     VALUES(:id,:description,:procedure_number,:institution,:procedure_type,:modality,
     :object_classification,:item,:line_number,:awardee,:currency,:amount,:exchange_rate,
     :awarded_crc,:status,:source_url,:first_seen,:last_seen,
-    :is_it,:it_score,:it_priority,:it_labels)
+    :is_it,:it_score,:it_priority,:it_labels,:publication_date,:classification_version)
     ON CONFLICT(id) DO UPDATE SET
     description=CASE WHEN excluded.description <> '' THEN excluded.description
                      ELSE tenders.description END,
@@ -87,10 +90,13 @@ UPSERT = text('''INSERT INTO tenders(id,description,procedure_number,institution
     currency=excluded.currency,amount=excluded.amount,exchange_rate=excluded.exchange_rate,
     awarded_crc=excluded.awarded_crc,status=excluded.status,
     source_url=excluded.source_url,last_seen=excluded.last_seen,
+    publication_date=COALESCE(NULLIF(excluded.publication_date,''),tenders.publication_date),
     is_it=CASE WHEN excluded.description <> '' THEN excluded.is_it ELSE tenders.is_it END,
     it_score=CASE WHEN excluded.description <> '' THEN excluded.it_score ELSE tenders.it_score END,
     it_priority=CASE WHEN excluded.description <> '' THEN excluded.it_priority ELSE tenders.it_priority END,
-    it_labels=CASE WHEN excluded.description <> '' THEN excluded.it_labels ELSE tenders.it_labels END''')
+    it_labels=CASE WHEN excluded.description <> '' THEN excluded.it_labels ELSE tenders.it_labels END,
+    classification_version=CASE WHEN excluded.description <> '' THEN excluded.classification_version
+                                ELSE tenders.classification_version END''')
 
 
 def utcnow():
@@ -114,13 +120,16 @@ def init_db():
             conn.execute(text(stmt))
         existing = {col['name'] for col in inspect(conn).get_columns('tenders')}
         for name, kind in (('is_it', 'INTEGER'), ('it_score', 'INTEGER'),
-                           ('it_priority', 'VARCHAR(20)'), ('it_labels', 'TEXT')):
+                           ('it_priority', 'VARCHAR(20)'), ('it_labels', 'TEXT'),
+                           ('publication_date', 'VARCHAR(10)'),
+                           ('classification_version', 'INTEGER')):
             if name not in existing:
                 if engine.dialect.name == 'postgresql':
                     conn.execute(text(f'ALTER TABLE tenders ADD COLUMN IF NOT EXISTS {name} {kind}'))
                 else:
                     conn.execute(text(f'ALTER TABLE tenders ADD COLUMN {name} {kind}'))
         conn.execute(text('CREATE INDEX IF NOT EXISTS ix_tenders_it_priority ON tenders(is_it,it_score)'))
+        conn.execute(text('CREATE INDEX IF NOT EXISTS ix_tenders_publication ON tenders(publication_date)'))
         conn.execute(text('''INSERT INTO sync_state(id,next_page,pages_done)
                              VALUES(1,1,0) ON CONFLICT(id) DO NOTHING'''))
     _INITIALIZED_ENGINE = engine
@@ -132,8 +141,9 @@ def init_db():
 def backfill_classifications(limit=500):
     with engine.begin() as conn:
         rows = conn.execute(text('''SELECT id,description,object_classification,institution
-            FROM tenders WHERE it_score IS NULL LIMIT :limit'''),
-            {'limit': limit}).mappings().all()
+            FROM tenders WHERE classification_version IS NULL OR classification_version < :version
+            LIMIT :limit'''),
+            {'limit': limit, 'version': CLASSIFICATION_VERSION}).mappings().all()
         payload = []
         for row in rows:
             info = classify_opportunity(row['description'], row['object_classification'])
@@ -141,11 +151,12 @@ def backfill_classifications(limit=500):
                             'description': clean_description(row['description']),
                             'score': info['it_score'], 'priority': info['it_priority'],
                             'labels': json.dumps(info['it_labels'], ensure_ascii=False),
-                            'institution': buyer_name(row['institution'])})
+                            'institution': buyer_name(row['institution']),
+                            'version': CLASSIFICATION_VERSION})
         if payload:
             conn.execute(text('''UPDATE tenders SET is_it=:is_it,it_score=:score,
                  it_priority=:priority,it_labels=:labels,institution=:institution,
-                 description=:description WHERE id=:id'''), payload)
+                 description=:description, classification_version=:version WHERE id=:id'''), payload)
     return len(payload)
 
 
@@ -262,6 +273,8 @@ def upsert_rows(rows, conn=None):
             'awarded_crc': number(value(row, 'Monto adjudicado en colones', 'awarded_crc')),
             'status': value(row, 'Estado de procedimiento', 'status'),
             'source_url': SICOP_OPEN_DATA_URL, 'first_seen': now, 'last_seen': now,
+            'publication_date': date_from_row(row),
+            'classification_version': CLASSIFICATION_VERSION,
             'is_it': scoring['is_it'], 'it_score': scoring['it_score'],
             'it_priority': scoring['it_priority'],
             'it_labels': json.dumps(scoring['it_labels'], ensure_ascii=False),
@@ -435,6 +448,7 @@ def present_row(row):
     item['institution'] = buyer_name(item.get('institution'))
     item['client_display'] = item['institution'] or 'Cliente no informado'
     item['summary'] = brief_description(item.get('description'))
+    item['publication_display'] = display_publication_date(item.get('publication_date'))
     try:
         item['tech_areas'] = json.loads(item.get('it_labels') or '[]')
     except (ValueError, TypeError):
@@ -443,11 +457,35 @@ def present_row(row):
     return item
 
 
+# Column names here are intentionally whitelisted. Query text is always bound.
+COLUMN_FIELDS = {
+    'client_contains': 'institution',
+    'description_contains': 'description',
+    'procedure_contains': 'procedure_number',
+    'state_contains': 'status',
+    'type_contains': 'procedure_type',
+    'awardee_contains': 'awardee',
+}
+COLUMN_FILTER_KEYS = tuple(COLUMN_FIELDS) + (
+    'column_priority', 'column_area', 'published_from', 'published_to',
+    'amount_min', 'amount_max', 'publication_missing',
+)
+
+
 def search_filter():
-    q = request.args.get('q', '').strip()
-    status = request.args.get('status', '').strip()
-    institution = request.args.get('institution', '').strip()
+    q = request.args.get('q', '').strip()[:200]
+    status = request.args.get('status', '').strip()[:200]
+    institution = request.args.get('institution', '').strip()[:200]
     tech = selected_filter(request.args.get('tech', 'noventiq'))
+    priority = request.args.get('priority', '').title()
+    if priority not in ('Alta', 'Media', 'Baja'):
+        priority = ''
+    column = {name: request.args.get(name, '').strip()[:200]
+              for name in COLUMN_FILTER_KEYS}
+    if column['column_priority'] not in ('Alta', 'Media', 'Baja'):
+        column['column_priority'] = ''
+    if column['column_area'] not in AREA_LABELS:
+        column['column_area'] = ''
     conditions, params = [], {}
     if q:
         conditions.append('''(LOWER(description) LIKE :q OR
@@ -464,15 +502,62 @@ def search_filter():
     if tech_where:
         conditions.append(tech_where)
         params.update(tech_params)
-    where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
-    priority = request.args.get('priority', '').title()
-    if priority not in ('Alta', 'Media', 'Baja'):
-        priority = ''
     if priority:
         conditions.append('it_priority=:priority')
         params['priority'] = priority
-        where = (' WHERE ' + ' AND '.join(conditions))
-    return q, status, institution, tech, priority, where, params
+    for key, field in COLUMN_FIELDS.items():
+        if column[key]:
+            conditions.append(f"LOWER(COALESCE({field},'')) LIKE :{key}")
+            params[key] = '%' + column[key].lower() + '%'
+    if column['column_priority']:
+        conditions.append('it_priority=:column_priority')
+        params['column_priority'] = column['column_priority']
+    if column['column_area']:
+        conditions.append("COALESCE(it_labels,'') LIKE :column_area")
+        params['column_area'] = '%' + json.dumps(AREA_LABELS[column['column_area']],
+                                                 ensure_ascii=False) + '%'
+    for key, comparator in (('published_from','>='), ('published_to','<=')):
+        publication = parse_publication_date(column[key])
+        # Date picker only uses ISO dates; a malicious/freeform input is ignored.
+        if publication and publication == column[key]:
+            conditions.append(f'publication_date {comparator} :{key}')
+            params[key] = publication
+        else:
+            column[key] = ''
+    if column['publication_missing'] == '1':
+        conditions.append("(publication_date IS NULL OR publication_date='')")
+    else:
+        column['publication_missing'] = ''
+    for key, comparator in (('amount_min','>='), ('amount_max','<=')):
+        if column[key]:
+            try:
+                amount_value = float(column[key])
+                if not math.isfinite(amount_value) or amount_value < 0:
+                    raise ValueError('Invalid amount')
+                params[key] = amount_value
+                conditions.append(f'amount {comparator} :{key}')
+            except ValueError:
+                column[key] = ''
+    where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
+    return q, status, institution, tech, priority, column, where, params
+
+
+SORT_OPTIONS = (('relevance', 'Mayor relevancia'),
+                ('publication', 'Publicación más reciente'),
+                ('amount', 'Monto más alto'), ('client', 'Cliente A-Z'))
+SORT_SQL = {
+    'relevance': 'COALESCE(it_score,0) DESC, last_seen DESC, id ASC',
+    'publication': "CASE WHEN publication_date IS NULL OR publication_date='' THEN 1 ELSE 0 END, publication_date DESC, COALESCE(it_score,0) DESC, id ASC",
+    'amount': 'CASE WHEN amount IS NULL THEN 1 ELSE 0 END, amount DESC, id ASC',
+    'client': 'institution ASC, id ASC',
+}
+
+
+def table_query_args(q, status, institution, tech, priority, column, per_page, sort):
+    args = {'q': q, 'status': status, 'institution': institution, 'tech': tech,
+            'priority': priority, 'per_page': per_page, 'sort': sort}
+    args.update({k: v for k,v in column.items() if v})
+    return args
 
 
 def positive_int(value, default, max_value):
@@ -485,15 +570,19 @@ def positive_int(value, default, max_value):
 @app.get('/')
 @login_required
 def index():
-    q, status, institution, tech, priority, where, params = search_filter()
+    q, status, institution, tech, priority, column, where, params = search_filter()
     per_page = positive_int(request.args.get('per_page'), 50, 100)
     requested_page = positive_int(request.args.get('page'), 1, 100000000)
+    sort = request.args.get('sort', 'relevance')
+    if sort not in SORT_SQL:
+        sort = 'relevance'
+    order_by = SORT_SQL[sort]
     with engine.begin() as conn:
         matched = conn.execute(text('SELECT COUNT(*) FROM tenders' + where), params).scalar_one()
         pages = max(1, math.ceil(matched / per_page))
         page = min(requested_page, pages)
-        rows = conn.execute(text('''SELECT * FROM tenders''' + where + '''
-            ORDER BY COALESCE(it_score,0) DESC, last_seen DESC, id ASC LIMIT :limit OFFSET :offset'''),
+        rows = conn.execute(text('SELECT * FROM tenders' + where +
+            ' ORDER BY ' + order_by + ' LIMIT :limit OFFSET :offset'),
             {**params, 'limit': per_page, 'offset': (page - 1) * per_page}).mappings().all()
         rows = [present_row(r) for r in rows]
         stats = conn.execute(text('''SELECT COUNT(*) AS total,
@@ -514,7 +603,10 @@ def index():
                            tech_filter_options=TECH_FILTER_OPTIONS, page=page, pages=pages,
                            matched=matched, per_page=per_page, sync_state=sync_state,
                            page_numbers=range(max(1, page-2), min(pages, page+2)+1),
-                           last_run=last_run)
+                           last_run=last_run, column=column, sort=sort,
+                           sort_options=SORT_OPTIONS, area_options=AREA_LABELS.items(),
+                           query_args=table_query_args(q, status, institution, tech, priority,
+                             column, per_page, sort))
 
 
 def csv_import(file_obj, encoding):
@@ -610,13 +702,16 @@ def scheduled_refresh():
 @app.get('/api/tenders')
 @login_required
 def api_tenders():
-    q, status, institution, tech, priority, where, params = search_filter()
+    q, status, institution, tech, priority, column, where, params = search_filter()
     per_page = positive_int(request.args.get('per_page'), 100, 500)
     page = positive_int(request.args.get('page'), 1, 100000000)
+    sort = request.args.get('sort', 'relevance')
+    if sort not in SORT_SQL:
+        sort = 'relevance'
     with engine.begin() as conn:
         total = conn.execute(text('SELECT COUNT(*) FROM tenders' + where), params).scalar_one()
-        rows = conn.execute(text('''SELECT * FROM tenders''' + where + '''
-            ORDER BY COALESCE(it_score,0) DESC,last_seen DESC,id ASC LIMIT :limit OFFSET :offset'''),
+        rows = conn.execute(text('SELECT * FROM tenders' + where +
+            ' ORDER BY ' + SORT_SQL[sort] + ' LIMIT :limit OFFSET :offset'),
             {**params, 'limit': per_page, 'offset': (page - 1) * per_page}).mappings().all()
     return jsonify({'items': [present_row(r) for r in rows], 'tech': tech, 'page': page,
                     'per_page': per_page, 'total': total,
@@ -627,12 +722,16 @@ def api_tenders():
 @login_required
 def export_csv():
     """Stream all matching database rows without a LIMIT or memory spike."""
-    q, status, institution, tech, priority, where, params = search_filter()
+    q, status, institution, tech, priority, column, where, params = search_filter()
+    sort = request.args.get('sort', 'relevance')
+    if sort not in SORT_SQL:
+        sort = 'relevance'
     columns = ['id', 'procedure_number', 'description', 'institution',
                'procedure_type', 'modality', 'object_classification', 'item',
                'line_number', 'awardee', 'currency', 'amount', 'exchange_rate',
                'awarded_crc', 'status', 'source_url', 'first_seen', 'last_seen',
-               'is_it', 'it_score', 'it_priority', 'it_labels']
+               'is_it', 'it_score', 'it_priority', 'it_labels',
+               'publication_date', 'classification_version']
 
     @stream_with_context
     def produce():
@@ -645,7 +744,7 @@ def export_csv():
         with engine.connect() as conn:
             result = conn.execution_options(stream_results=True).execute(text(
                 'SELECT ' + ','.join(columns) + ' FROM tenders' + where
-                + ' ORDER BY COALESCE(it_score,0) DESC,last_seen DESC,id ASC'), params)
+                + ' ORDER BY ' + SORT_SQL[sort]), params)
             for record in result:
                 writer.writerow([value if value is not None else '' for value in record])
                 yield buf.getvalue()

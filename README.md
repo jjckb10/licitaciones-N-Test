@@ -120,3 +120,11 @@ En el buscador, usá **Categoría tecnológica** para escoger «Todas las oportu
 El filtro funciona sobre **las filas ya almacenadas**, sin borrarlas ni alterar la base de datos. Se puede combinar con Estado, Cliente y búsqueda de texto; el filtro se conserva al paginar, al consultar `GET /api/tenders?tech=noventiq` y al usar `GET /export.csv?tech=noventiq`.
 
 El perfil es una **selección editorial de palabras clave** en el objeto/descripcion de la compra, no una clasificación oficial de SICOP ni una afirmación de que Noventiq pueda ofrecer cada producto. Requiere revisar condiciones, requisitos y fechas del cartel. La clasificación es aproximada: puede incluir resultados no aplicables u omitir títulos muy genéricos. Modificá las listas de términos en `app/technology.py` si querés ajustarlo a tu catálogo comercial. Para que aparezcan más oportunidades, primero es necesario que la sincronización o la carga de CSV incorpore esas licitaciones; el filtro no obtiene registros nuevos.
+
+## Actualización V5 – Fechas, filtros por columna y operaciones de seguridad
+
+Se incorpora un campo `publication_date` con fecha **real de publicación si aparece expresamente en un HTML o CSV**. El reporte `Datos abiertos concursos` utilizado por la sincronización no suele tener esa columna, por lo que aparecerá «No disponible» en registros sin fecha; se conserva cualquier fecha previamente importada cuando se resincroniza.
+
+Debajo de cada encabezado de la tabla se encuentran los filtros específicos para cliente, descripción, fechas, prioridad, SOC/SecOps y otras áreas, procedimiento, estado, tipo, monto y proveedor. Pueden combinarse y se aplican a todos los registros almacenados; también afectan la API paginada y el CSV filtrado.
+
+Nuevas categorías: SOC, SecOps/operaciones de seguridad, SIEM/SOAR, IAM/PAM, MDR/MSSP, vulnerabilidades/pentesting y SGSI/gobierno de seguridad. **Más detalles en `V5_DESPLIEGUE.md`.**

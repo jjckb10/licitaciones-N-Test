@@ -47,6 +47,7 @@ def test_upsert_and_tech_filter_sql_valid_in_sqlite():
             'is_it': classification['is_it'], 'it_score': classification['it_score'],
             'it_priority': classification['it_priority'],
             'it_labels': json.dumps(classification['it_labels'], ensure_ascii=False),
+            'publication_date': None, 'classification_version': 5,
         })
         conn.execute(text(upsert), row)
         # Bad subsequent parsed row must not corrupt a good buyer or rating.

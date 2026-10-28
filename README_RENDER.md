@@ -71,3 +71,7 @@ Para sincronización diaria desde GitHub Actions, configurar los secretos
 `SICOP_APP_URL` y `SICOP_REFRESH_TOKEN` y habilitar Actions. Ver `V4_DESPLIEGUE.md`.
 No confundir la institución con `Tipo Procedimiento`, ni el puntaje comercial
 con una aprobación automática de participación o disponibilidad de ofertas.
+
+## Actualización V5
+
+La migración automática agrega `tenders.publication_date` y `tenders.classification_version` sin eliminar datos existentes. Las nuevas categorías de SOC, SecOps, SIEM, IAM, MDR/MSSP, vulnerabilidades y gobierno de seguridad se recalculan por lotes. No hay variables de entorno nuevas obligatorias. Para que se muestre una fecha de publicación debe existir explícitamente en la fuente o un CSV oficial compatible (ver `V5_DESPLIEGUE.md`).
