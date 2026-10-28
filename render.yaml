@@ -24,6 +24,10 @@ services:
         sync: false
       - key: USER_PASSWORD_1
         sync: false
+      - key: REQUIRE_PERSISTENT_DB
+        value: "1"
+      - key: OBS_REFRESH_HOURS
+        value: "18"
       - key: SICOP_PAGES_PER_RUN
         value: "20"
       - key: SICOP_SYNC_MAX_SECONDS

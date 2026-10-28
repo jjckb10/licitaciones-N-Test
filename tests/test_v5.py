@@ -158,7 +158,7 @@ def test_column_filters_query_entire_database_and_reject_invalid_dates():
                      parse_publication_date=parse_publication_date,
                      AREA_LABELS=AREA_LABELS, math=__import__('math'))
     exec(compile(ast.Module(body=nodes, type_ignores=[]), '<filter>', 'exec'), namespace)
-    q, status, institution, tech, priority, cols, where, params = namespace['search_filter']()
+    q, status, institution, tech, priority, cols, where, params, source_filter = namespace['search_filter']()
     engine = create_engine('sqlite:///:memory:')
     with engine.begin() as conn:
         conn.execute(text('''CREATE TABLE tenders (id TEXT PRIMARY KEY, description TEXT,
@@ -176,6 +176,6 @@ def test_column_filters_query_entire_database_and_reject_invalid_dates():
         matched = conn.execute(text('SELECT id FROM tenders'+where),params).all()
         assert matched == [('1',)]
     args['published_from'] = '2026-13-38'
-    _, _, _, _, _, cols, where, params = namespace['search_filter']()
+    _, _, _, _, _, cols, where, params, source_filter = namespace['search_filter']()
     assert cols['published_from'] == ''
     assert 'published_from' not in params

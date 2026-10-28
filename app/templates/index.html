@@ -11,7 +11,7 @@
 </head>
 <body>
 <header class="top">
- <div><div class="brand">SICOP Opportunity Hub <span class="small">V6.1 · Noventiq</span></div><div class="subbrand">Oportunidades comerciales de tecnología y seguridad</div></div>
+ <div><div class="brand">SICOP Opportunity Hub <span class="small">V9 · Noventiq</span></div><div class="subbrand">Oportunidades comerciales de tecnología y seguridad</div></div>
  <div class="account">{{u.email}}{% if u.admin %}<span class="separator">·</span><a href="{{url_for('manage_users')}}">Usuarios</a>{% endif %}<span class="separator">·</span><a href="{{url_for('logout')}}">Salir</a></div>
 </header>
 <main class="wrap">
@@ -32,24 +32,33 @@
 </div>
 <section class="panel">
  <h1>Explorar licitaciones</h1>
- <p class="muted small">Una búsqueda para todo el catálogo; los filtros específicos de cada columna son opcionales.</p>
+ <p class="muted small">Buscá por texto o elegí el perfil «SOC y servicios equivalentes» para encontrar también compras descritas como monitoreo y respuesta a incidentes. Los filtros por columna son opcionales.</p>
  <form id="filters-form" method="get" action="{{url_for('index')}}">
   <div class="search-row">
    <label class="field">Buscar en todas las oportunidades
-    <input name="q" aria-label="Buscar licitaciones" value="{{q}}" placeholder="Ej.: Microsoft 365, SOC, institución, procedimiento" autocomplete="off">
+    <input name="q" aria-label="Buscar licitaciones" value="{{q}}" placeholder="Ej.: monitoreo de seguridad, gestión de incidentes, Microsoft" autocomplete="off">
    </label>
    <label class="field">Perfil comercial
     <select name="tech" aria-label="Perfil de licitaciones">
      <option value="noventiq" {% if tech=='noventiq' %}selected{% endif %}>Tecnología · Noventiq</option>
      <option value="security_all" {% if tech=='security_all' %}selected{% endif %}>Seguridad TI (general)</option>
+     <option value="soc_related" {% if tech=='soc_related' %}selected{% endif %}>SOC y servicios equivalentes (monitoreo y respuesta)</option>
+     <option value="soc_map" {% if tech=='soc_map' %}selected{% endif %}>Mapa SOC · servicios directos, equivalentes y complementarios</option>
+     <option value="soc_complementary" {% if tech=='soc_complementary' %}selected{% endif %}>Seguridad complementaria · revisión comercial</option>
      <option value="all" {% if tech=='all' %}selected{% endif %}>Todas las licitaciones</option>
-     {% if tech not in ['noventiq','security_all','all'] %}<option value="{{tech}}" selected>{{dict(tech_filter_options|default([])).get(tech,tech)}}</option>{% endif %}
+     {% if tech not in ['noventiq','security_all','soc_related','soc_map','soc_complementary','all'] %}<option value="{{tech}}" selected>{{dict(tech_filter_options|default([])).get(tech,tech)}}</option>{% endif %}
     </select>
    </label>
    <button type="submit">Buscar</button>
    <button type="button" id="toggle-columns" class="secondary" aria-controls="column-filter-row" aria-expanded="{{'true' if column_active else 'false'}}">Filtros por columna <span class="filter-count">{{column_filter_count|default(0)}}</span></button>
   </div>
+  <p class="tiny">Para detectar compras equivalentes a un SOC, elegí el perfil «SOC y servicios equivalentes» sin escribir “SOC” en la búsqueda libre. Esta clasificación es orientativa.</p>
   <div class="filter-tools">
+   <label class="mini-field">Origen <select name="source" aria-label="Fuente de información">
+    <option value="all" {% if source_filter|default('all')=='all' %}selected{% endif %}>Todas las fuentes</option>
+    <option value="observatorio" {% if source_filter|default('all')=='observatorio' %}selected{% endif %}>Observatorio (histórico)</option>
+    <option value="sicop" {% if source_filter|default('all')=='sicop' %}selected{% endif %}>Reporte SICOP / CSV</option>
+   </select></label>
    <label class="mini-field">Ordenar <select name="sort" aria-label="Ordenar resultados">{% for key,label in sort_options %}<option value="{{key}}" {% if sort==key %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
    <label class="mini-field">Mostrar <select name="per_page" aria-label="Filas por página">{% for n in [25,50,100] %}<option value="{{n}}" {% if per_page==n %}selected{% endif %}>{{n}} por página</option>{% endfor %}</select></label>
    <a class="btn secondary push" href="{{url_for('export_csv',**query_args)}}">Exportar CSV</a>
@@ -80,9 +89,9 @@
   <td class="desc" title="{{r.description|default('')}}"><span class="summary">{{r.summary|default(r.description|default('Descripción no disponible',true),true)}}</span></td>
   <td class="published"><strong>{{r.publication_display|default('No disponible',true)}}</strong>{% if not r.publication_date %}<small>Fuente sin fecha</small>{% endif %}</td>
   <td><span class="prio prio-{{r.it_priority|default('Baja',true)}}">{{r.it_priority or 'Sin clasificar'}}</span><div class="tiny">{{r.it_score or 0}}/100 relevancia</div></td>
-  <td>{% for area in (r.tech_areas|default([]))[:3] %}<span class="badge">{{area}}</span>{% else %}<span class="muted">Sin categoría</span>{% endfor %}</td>
-  <td>{{r.procedure_number}}</td>
-  <td><span class="badge">{{r.status or 'Sin dato'}}</span></td>
+  <td>{% for area in (r.tech_areas|default([]))[:3] %}<span class="badge">{{area}}</span>{% else %}<span class="muted">Sin categoría</span>{% endfor %}{% if r.soc_tier|default('none')!='none' %}<div class="tiny"><strong>{{r.soc_label}}</strong></div><details class="tiny"><summary>¿Por qué?</summary>{{r.soc_reason}}{% if r.soc_evidence %}<div>Señales: {{r.soc_evidence|join(', ')}}</div>{% endif %}</details>{% endif %}</td>
+  <td><strong>{{r.procedure_number}}</strong><div class="tiny">{{r.source_kind or 'Fuente desconocida'}}</div></td>
+  <td><span class="badge">{{r.status or 'Sin dato'}}</span>{% if r.closing_date|default('') %}<div class="tiny">Cierre registrado: {{r.closing_date}} · confirmar vigencia en SICOP</div>{% endif %}</td>
   <td>{{r.procedure_type or 'No informado'}}</td>
   <td>{{r.currency or ''}} {{'{:,.2f}'.format(r.amount) if r.amount is not none else 'No informado'}}</td>
   <td>{{r.awardee or 'No informado'}}</td>
@@ -92,7 +101,7 @@
   {% if page>1 %}<a href="{{url_for('index',page=1,**query_args)}}">Primera</a><a href="{{url_for('index',page=page-1,**query_args)}}">Anterior</a>{% endif %}
   {% for n in page_numbers %}{% if n==page %}<span class="active">{{n}}</span>{% else %}<a href="{{url_for('index',page=n,**query_args)}}">{{n}}</a>{% endif %}{% endfor %}
   {% if page<pages %}<a href="{{url_for('index',page=page+1,**query_args)}}">Siguiente</a><a href="{{url_for('index',page=pages,**query_args)}}">Última</a>{% endif %}
- </nav><span class="tiny">Las fechas solo se muestran cuando SICOP o el CSV las proporcionan.</span></div>
+ </nav><span class="tiny">Las fechas se muestran cuando la fuente las proporciona. Un registro histórico no implica que acepte ofertas.</span></div>
 </section>
 {% if u.admin %}
 <section class="panel admin-tools"><details>
@@ -105,12 +114,81 @@
   <form method="post" action="{{url_for('reset_sync')}}"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button class="secondary" onclick="return confirm('¿Reiniciar recorrido? No se borrarán licitaciones.')">Reiniciar recorrido</button></form>
  </div>
  <p id="sync-progress" class="muted small" role="status" aria-live="polite">Para completar el recorrido mantené esta pestaña abierta.</p>
+ <div class="info"><strong>Base de datos:</strong> {{storage_backend|default('desconocida')}} · La continuidad depende de conservar la misma DATABASE_URL y de que el proveedor de base de datos siga activo. No borres la instancia ni la recreés al desplegar.</div>
+ <div class="info"><strong>Actualización incremental (recomendada)</strong><br>
+  Conserva los registros en PostgreSQL y revisa solamente los meses recientes.
+  {% if last_observatorio %}<br>Última carga: {{last_observatorio.month}} · nuevos {{last_observatorio.created or 0}} · modificados {{last_observatorio.updated or 0}} · sin cambios {{last_observatorio.unchanged or 0}}.{% endif %}
+ </div>
+ <div class="admin-actions"><button id="obs-incremental" type="button">Actualizar novedades sin reiniciar</button><span id="obs-incremental-status" class="tiny" role="status" aria-live="polite">Revisa solo el mes actual y el anterior.</span></div>
+ <div class="info"><strong>Fuente adicional · Observatorio de Compra Pública</strong><br>
+  ZIP oficiales mensuales con fecha de publicación y cliente cuando exista. Históricos: su vigencia debe revisarse en SICOP.
+  {% if last_observatorio %}<br>Última importación: {{last_observatorio.month}} · {{last_observatorio.records}} filas procesadas.{% endif %}
+ </div>
+ <form id="obs-online-form" method="post" action="{{url_for('import_observatorio_online')}}" class="admin-actions">
+  <input type="hidden" name="csrf_token" value="{{csrf_token}}">
+  <label>Mes (AAAAMM) <input name="month" type="text" pattern="20[0-9]{4}" value="{{current_month|default('202610')}}" maxlength="6" required style="width:110px"></label>
+  <button type="submit" class="secondary">Descargar mes oficial</button>
+  <label>Desde (AAAAMM) <input id="obs-start-month" name="start_month" type="text" value="202301" pattern="20[0-9]{4}" maxlength="6" style="width:100px" title="En la primera ejecución; después se reanuda el último mes guardado"></label>
+  <button type="button" id="obs-history" class="secondary">Recorrer histórico mes a mes</button>
+  <button type="submit" class="secondary" formmethod="post" formaction="{{url_for('reset_observatorio_history')}}" onclick="return confirm('¿Volver a recorrer los meses desde el elegido? No se borran datos.')">Reiniciar histórico desde ese mes</button>
+ </form>
+ <p class="tiny" id="obs-status" role="status" aria-live="polite">La importación mensual puede tardar y necesita acceso a Azure desde Render. Para años anteriores, descargá el ZIP oficial e importalo manualmente.</p>
+ <form method="post" action="{{url_for('import_observatorio_upload')}}" enctype="multipart/form-data" class="admin-actions">
+   <input type="hidden" name="csrf_token" value="{{csrf_token}}">
+   <label>Mes del ZIP <input name="month" pattern="20[0-9]{4}" value="{{current_month|default('202610')}}" maxlength="6" required style="width:110px"></label>
+   <input type="file" name="file" accept=".zip,application/zip" aria-label="ZIP mensual del Observatorio" required>
+   <button type="submit" class="secondary">Importar ZIP oficial</button>
+ </form>
  <form method="post" action="{{url_for('upload_csv')}}" enctype="multipart/form-data" class="admin-actions"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><input type="file" name="file" accept=".csv,text/csv" aria-label="Archivo CSV oficial" required><button class="secondary">Importar CSV oficial</button></form>
 </details></section>
 {% endif %}
 </main>
 <script>
 (() => {
+  const incrementButton = document.getElementById('obs-incremental');
+  const incrementStatus = document.getElementById('obs-incremental-status');
+  if (incrementButton) incrementButton.addEventListener('click', async () => {
+    incrementButton.disabled = true;
+    try {
+      for (let n=0; n<3; n++) {
+        const res = await fetch("{{url_for('incremental_observatorio')}}", {
+          method:'POST',credentials:'same-origin',
+          headers:{'Accept':'application/json','X-CSRF-Token':{{csrf_token|default('',true)|tojson}}}
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'No se pudo revisar el mes');
+        incrementStatus.textContent = 'Mes '+(data.month || 'sin pendientes') +
+          ': '+(data.created || 0)+' nuevos, '+(data.updated || 0)+
+          ' modificados; '+(data.unchanged || 0)+' sin cambios.';
+        if (data.status === 'complete') {window.location.reload(); return;}
+      }
+      incrementStatus.textContent = 'Avance guardado. Podés continuar cuando quieras.';
+    } catch (error) {incrementStatus.textContent='Revisión detenida: '+error.message;}
+    finally {incrementButton.disabled=false;}
+  });
+  const historyButton = document.getElementById('obs-history');
+  const historyOutput = document.getElementById('obs-status');
+  if (historyButton) historyButton.addEventListener('click', async () => {
+    historyButton.disabled = true;
+    historyButton.textContent = 'Importando histórico…';
+    try {
+      for (let i=0;i<250;i++) {
+        const response = await fetch("{{url_for('import_observatorio_history')}}", {
+          method:'POST',credentials:'same-origin',
+          headers:{'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded',
+                   'X-CSRF-Token':{{csrf_token|default('',true)|tojson}}},
+          body:new URLSearchParams({start_month:document.getElementById('obs-start-month')?.value || '202301'}).toString()
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error((result.month || '')+' '+(result.detail || 'Error de conexión'));
+        historyOutput.textContent = `Mes ${result.month || 'final'}: ${result.processed || 0} filas; siguiente: ${result.next_month || '—'}.`;
+        if (result.status==='complete') {window.location.reload();return;}
+      }
+      historyOutput.textContent='Se completaron 250 pasos; volvé a presionar para continuar.';
+    } catch (error) {
+      historyOutput.textContent='Importación detenida: '+error.message+'. Se conservan los meses completados.';
+    } finally {historyButton.disabled=false;historyButton.textContent='Reanudar histórico mes a mes';}
+  });
   const toggle = document.getElementById('toggle-columns');
   const row = document.getElementById('column-filter-row');
   if (toggle && row) toggle.addEventListener('click', () => {
@@ -135,7 +213,7 @@
     let blocks = 0, processed = 0;
     try {
       while (blocks < 1000) {
-        const response = await fetch("{{url_for('api_manual_sync')}}", {method:'POST', credentials:'same-origin', headers:{'Accept':'application/json','X-CSRF-Token':{{csrf_token|tojson}}}});
+        const response = await fetch("{{url_for('api_manual_sync')}}", {method:'POST', credentials:'same-origin', headers:{'Accept':'application/json','X-CSRF-Token':{{csrf_token|default('',true)|tojson}}}});
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || `Error HTTP ${response.status}`);
         blocks++;

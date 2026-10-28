@@ -23,12 +23,26 @@ from app.technology import (TECH_FILTER_OPTIONS, matched_areas,
 from app.presentation import buyer_name, clean_description, brief_description
 from app.publication import date_from_row, display_publication_date, parse_publication_date
 from app.technology import AREA_LABELS, CLASSIFICATION_VERSION
+from app.catalog_sql import CATALOG_FROM
+from app.soc_radar import analyze_soc
+from app.incremental import recent_months, due_for_refresh
+from app.observatorio import (ObservatoryImportError, download_archive,
+                             iter_carteles, validate_month, official_archive_url)
+from pathlib import Path
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'development-only-change-me')
 app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_CSV_UPLOAD_MB', '70')) * 1024 * 1024
 
+# The free Render web filesystem is ephemeral. Never silently store production
+# data in /tmp/sicop.db when DATABASE_URL is missing.
+PERSISTENCE_REQUIRED = (os.getenv('REQUIRE_PERSISTENT_DB', '').lower() in ('1','true','yes')
+                        or bool(os.getenv('RENDER_SERVICE_ID')) or os.getenv('RENDER') == 'true')
+if PERSISTENCE_REQUIRED and not os.getenv('DATABASE_URL'):
+    raise RuntimeError('DATABASE_URL no está configurada. Render necesita PostgreSQL persistente; se bloqueó SQLite temporal para evitar pérdida de datos.')
 DB_URL = os.getenv('DATABASE_URL', 'sqlite:////tmp/sicop.db')
+if PERSISTENCE_REQUIRED and not DB_URL.startswith(('postgres://','postgresql://','postgresql+psycopg://')):
+    raise RuntimeError('Base de datos no persistente en Render. Configurá DATABASE_URL de PostgreSQL antes de desplegar.')
 if DB_URL.startswith('postgres://'):
     DB_URL = DB_URL.replace('postgres://', 'postgresql+psycopg://', 1)
 elif DB_URL.startswith('postgresql://'):
@@ -65,6 +79,19 @@ DDL = [
        source_url TEXT,first_seen TEXT,last_seen TEXT, publication_date VARCHAR(10),
        is_it INTEGER,it_score INTEGER,it_priority VARCHAR(20),it_labels TEXT,
        classification_version INTEGER)''',
+    '''CREATE TABLE IF NOT EXISTS observatory_tenders(
+       procedure_number VARCHAR(140) PRIMARY KEY,description TEXT,institution TEXT,
+       procedure_type TEXT,modality TEXT,object_classification TEXT,
+       publication_date VARCHAR(10),closing_date VARCHAR(10),status VARCHAR(180),
+       currency VARCHAR(20),amount DOUBLE PRECISION,source_url TEXT,
+       archive_month VARCHAR(6),first_seen TEXT,last_seen TEXT,
+       is_it INTEGER,it_score INTEGER,it_priority VARCHAR(20),it_labels TEXT,
+       classification_version INTEGER)''',
+    '''CREATE TABLE IF NOT EXISTS observatory_imports(
+       month VARCHAR(6) PRIMARY KEY,imported_at TEXT,records INTEGER,
+       status VARCHAR(40),message TEXT,created INTEGER DEFAULT 0,updated INTEGER DEFAULT 0,unchanged INTEGER DEFAULT 0)''',
+    '''CREATE INDEX IF NOT EXISTS ix_obs_date ON observatory_tenders(publication_date)''',
+    '''CREATE INDEX IF NOT EXISTS ix_obs_it ON observatory_tenders(is_it,it_score)''',
     '''CREATE TABLE IF NOT EXISTS sync_runs(id BIGSERIAL PRIMARY KEY,started_at TEXT,
        finished_at TEXT,status VARCHAR(40),imported INTEGER,message TEXT)''',
     '''CREATE TABLE IF NOT EXISTS sync_state(id INTEGER PRIMARY KEY,next_page INTEGER NOT NULL,
@@ -101,6 +128,40 @@ UPSERT = text('''INSERT INTO tenders(id,description,procedure_number,institution
     it_labels=CASE WHEN excluded.description <> '' THEN excluded.it_labels ELSE tenders.it_labels END,
     classification_version=CASE WHEN excluded.description <> '' THEN excluded.classification_version
                                 ELSE tenders.classification_version END''')
+
+
+OBS_UPSERT = text('''INSERT INTO observatory_tenders (
+ procedure_number,description,institution,procedure_type,modality,
+ object_classification,publication_date,closing_date,status,currency,
+ amount,source_url,archive_month,first_seen,last_seen,
+ is_it,it_score,it_priority,it_labels,classification_version)
+ VALUES (:procedure_number,:description,:institution,:procedure_type,:modality,
+ :object_classification,:publication_date,:closing_date,:status,:currency,
+ :amount,:source_url,:archive_month,:first_seen,:last_seen,
+ :is_it,:it_score,:it_priority,:it_labels,:classification_version)
+ ON CONFLICT(procedure_number) DO UPDATE SET
+ description=CASE WHEN excluded.description <> '' THEN excluded.description
+                  ELSE observatory_tenders.description END,
+ institution=CASE WHEN excluded.institution <> '' THEN excluded.institution
+                  ELSE observatory_tenders.institution END,
+ procedure_type=CASE WHEN excluded.procedure_type <> '' THEN excluded.procedure_type
+                  ELSE observatory_tenders.procedure_type END,
+ modality=CASE WHEN excluded.modality <> '' THEN excluded.modality
+               ELSE observatory_tenders.modality END,
+ object_classification=CASE WHEN excluded.object_classification <> ''
+                 THEN excluded.object_classification ELSE observatory_tenders.object_classification END,
+ publication_date=COALESCE(excluded.publication_date,observatory_tenders.publication_date),
+ closing_date=COALESCE(excluded.closing_date,observatory_tenders.closing_date),
+ currency=CASE WHEN excluded.currency <> '' THEN excluded.currency
+               ELSE observatory_tenders.currency END,
+ amount=COALESCE(excluded.amount,observatory_tenders.amount),
+ source_url=excluded.source_url,
+ archive_month=CASE WHEN excluded.archive_month > observatory_tenders.archive_month
+                    THEN excluded.archive_month ELSE observatory_tenders.archive_month END,
+ last_seen=excluded.last_seen,
+ is_it=excluded.is_it,it_score=excluded.it_score,
+ it_priority=excluded.it_priority,it_labels=excluded.it_labels,
+ classification_version=excluded.classification_version''')
 
 
 def utcnow():
@@ -144,6 +205,11 @@ def init_db():
                     conn.execute(text(f'ALTER TABLE users ADD COLUMN IF NOT EXISTS {name} {kind}'))
                 else:
                     conn.execute(text(f'ALTER TABLE users ADD COLUMN {name} {kind}'))
+        # Additive migration for existing V8 databases; historical data remains intact.
+        imported_cols = {col['name'] for col in inspect(conn).get_columns('observatory_imports')}
+        for name in ('created', 'updated', 'unchanged'):
+            if name not in imported_cols:
+                conn.execute(text(f'ALTER TABLE observatory_imports ADD COLUMN {name} INTEGER DEFAULT 0'))
         conn.execute(text('''INSERT INTO sync_state(id,next_page,pages_done)
                              VALUES(1,1,0) ON CONFLICT(id) DO NOTHING'''))
     _INITIALIZED_ENGINE = engine
@@ -171,7 +237,26 @@ def backfill_classifications(limit=500):
             conn.execute(text('''UPDATE tenders SET is_it=:is_it,it_score=:score,
                  it_priority=:priority,it_labels=:labels,institution=:institution,
                  description=:description, classification_version=:version WHERE id=:id'''), payload)
-    return len(payload)
+        # Newly introduced SOC language also applies to historical imports.
+        historical = conn.execute(text('''SELECT procedure_number,description,object_classification
+            FROM observatory_tenders
+            WHERE classification_version IS NULL OR classification_version < :version
+            LIMIT :limit'''), {'limit': limit, 'version': CLASSIFICATION_VERSION}).mappings().all()
+        history_updates = []
+        for old in historical:
+            info = classify_opportunity(old['description'], old['object_classification'])
+            history_updates.append({
+                'number': old['procedure_number'], 'is_it': info['is_it'],
+                'score': info['it_score'], 'priority': info['it_priority'],
+                'labels': json.dumps(info['it_labels'], ensure_ascii=False),
+                'version': CLASSIFICATION_VERSION,
+            })
+        if history_updates:
+            conn.execute(text('''UPDATE observatory_tenders
+                SET is_it=:is_it,it_score=:score,it_priority=:priority,
+                    it_labels=:labels,classification_version=:version
+                WHERE procedure_number=:number'''), history_updates)
+    return len(payload) + len(history_updates)
 
 
 def bootstrap_users():
@@ -268,7 +353,7 @@ def inject_csrf_token():
 
 
 def require_form_csrf():
-    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and request.endpoint != 'scheduled_refresh':
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and request.endpoint not in ('scheduled_refresh', 'scheduled_observatorio'):
         submitted = request.form.get('csrf_token') or request.headers.get('X-CSRF-Token', '')
         if not submitted or not secrets.compare_digest(submitted, session.get('csrf_token', '')):
             return 'Solicitud rechazada: token de seguridad inválido. Recargá la página.', 400
@@ -360,6 +445,127 @@ def upsert_rows(rows, conn=None):
             if processed:
                 transaction.execute(UPSERT, processed)
     return len(processed)
+
+
+
+def _store_observatorio_batch(conn, batch):
+    """Compare existing procedures and write only new or materially changed rows.
+
+    A repeated import does *not* touch last_seen on unchanged rows. The
+    comparison mirrors the merge rules of OBS_UPSERT (blank incoming values
+    must never wipe known description, institution, dates or amount).
+    """
+    from sqlalchemy import bindparam
+    numbers = [record['procedure_number'] for record in batch]
+    query = text("SELECT * FROM observatory_tenders WHERE procedure_number IN :ids").bindparams(
+        bindparam('ids', expanding=True))
+    existing = {row['procedure_number']: dict(row) for row in
+                conn.execute(query, {'ids': numbers}).mappings()}
+    # These fields are materially relevant to catalog display or classification.
+    fields = ('description','institution','procedure_type','modality',
+              'object_classification','publication_date','closing_date',
+              'currency','amount','is_it','it_score','it_priority','it_labels',
+              'classification_version')
+    new_count = changed_count = unchanged_count = 0
+    changes = []
+    for incoming in batch:
+        old = existing.get(incoming['procedure_number'])
+        if old is None:
+            new_count += 1
+            changes.append(incoming)
+            continue
+        def effective_value(field):
+            new = incoming[field]
+            if field in ('publication_date','closing_date','amount'):
+                return new if new is not None else old[field]
+            if field in ('description','institution','procedure_type','modality',
+                         'object_classification','currency'):
+                return new if new not in ('', None) else old[field]
+            return new
+        if any(effective_value(field) != old[field] for field in fields):
+            changed_count += 1
+            changes.append(incoming)
+        else:
+            unchanged_count += 1
+    if changes:
+        conn.execute(OBS_UPSERT, changes)
+    return new_count, changed_count, unchanged_count
+
+
+def import_observatorio(file_obj, month):
+    # Import one official monthly ZIP without clearing existing rows.
+    month = validate_month(month)
+    now = utcnow()
+    batch, processed = [], 0
+    created = updated = unchanged = 0
+    for row in iter_carteles(file_obj):
+        description = clean_description(row['description'])
+        score = classify_opportunity(description, row['object_classification'])
+        batch.append({
+            'procedure_number': row['procedure_number'], 'description': description,
+            'institution': buyer_name(row['institution']),
+            'procedure_type': row['procedure_type'], 'modality': row['modality'],
+            'object_classification': row['object_classification'],
+            'publication_date': row['publication_date'], 'closing_date': row['closing_date'],
+            'status': 'Vigencia por verificar en SICOP',
+            'currency': row['currency'], 'amount': number(row['amount']),
+            'source_url': official_archive_url(month), 'archive_month': month,
+            'first_seen': now, 'last_seen': now,
+            'is_it': score['is_it'], 'it_score': score['it_score'],
+            'it_priority': score['it_priority'],
+            'it_labels': json.dumps(score['it_labels'], ensure_ascii=False),
+            'classification_version': CLASSIFICATION_VERSION,
+        })
+        if len(batch) >= 500:
+            with engine.begin() as conn:
+                a, b, c = _store_observatorio_batch(conn, batch)
+            created += a; updated += b; unchanged += c
+            processed += len(batch)
+            batch = []
+    if batch:
+        with engine.begin() as conn:
+            a, b, c = _store_observatorio_batch(conn, batch)
+        created += a; updated += b; unchanged += c
+        processed += len(batch)
+    with engine.begin() as conn:
+        conn.execute(text('''INSERT INTO observatory_imports(month,imported_at,records,status,message)
+             VALUES(:month,:at,:records,'complete','ZIP DetalleCarteles procesado')
+             ON CONFLICT(month) DO UPDATE SET imported_at=excluded.imported_at,
+             records=excluded.records,status=excluded.status,message=excluded.message'''),
+             {'month': month, 'at': utcnow(), 'records': processed})
+        conn.execute(text('''UPDATE observatory_imports SET created=:created,
+            updated=:updated, unchanged=:unchanged WHERE month=:month'''),
+            {'created': created, 'updated': updated,
+             'unchanged': unchanged, 'month': month})
+    return {'status': 'complete', 'month': month, 'processed': processed,
+            'created': created, 'updated': updated, 'unchanged': unchanged,
+            'message': 'Carteles del ZIP incorporados. Vigencia pendiente de verificar en SICOP.'}
+
+
+def sync_observatorio(month):
+    # Only download from a fixed, trusted URL.
+    with download_archive(month) as archive:
+        return import_observatorio(archive, month)
+
+
+def sync_recent_observatorio():
+    """Review at most one stale recent month per call. No historical reset.
+
+    The first call updates the older month if needed; subsequent calls bring
+    the current month up to date. A monthly ZIP replaces neither the users nor
+    any other saved month. Idempotent imports compare new/changed rows.
+    """
+    for month in recent_months():
+        with engine.begin() as conn:
+            imported = conn.execute(text("SELECT imported_at FROM observatory_imports WHERE month=:month AND status='complete'"), {'month': month}).scalar()
+        if due_for_refresh(imported, hours=max(1, min(168, int(os.getenv('OBS_REFRESH_HOURS', '18'))))):
+            report = sync_observatorio(month)
+            report['mode'] = 'incremental'
+            report['status'] = 'partial' if month != recent_months()[-1] else 'complete'
+            return report
+    return {'status':'complete', 'mode':'incremental', 'processed':0,
+            'created':0,'updated':0,'unchanged':0,
+            'message':'No hay meses recientes pendientes de revisión.'}
 
 
 def start_lease():
@@ -656,6 +862,16 @@ def present_row(row):
     except (ValueError, TypeError):
         item['tech_areas'] = matched_areas(item.get('description'),
                                           item.get('object_classification'))
+    # Make SOC opportunities easy to find without requiring technical skills.
+    # Suggestions are evidence for human review, not confirmed SOC requirements.
+    soc_labels = (AREA_LABELS['soc'], AREA_LABELS['soc_related'])
+    item['tech_areas'].sort(key=lambda label: (0 if label in soc_labels else 1, label))
+    radar = analyze_soc(item.get('description'), item.get('object_classification'))
+    item['soc_tier'] = radar['tier']
+    item['soc_label'] = radar['label']
+    item['soc_evidence'] = radar['evidence']
+    item['soc_reason'] = radar['reason']
+    item['soc_potential'] = radar['tier'] == 'functional'
     return item
 
 
@@ -679,6 +895,9 @@ def search_filter():
     status = request.args.get('status', '').strip()[:200]
     institution = request.args.get('institution', '').strip()[:200]
     tech = selected_filter(request.args.get('tech', 'noventiq'))
+    source_filter = request.args.get('source','all')
+    if source_filter not in ('all','observatorio','sicop'):
+        source_filter = 'all'
     priority = request.args.get('priority', '').title()
     if priority not in ('Alta', 'Media', 'Baja'):
         priority = ''
@@ -700,6 +919,10 @@ def search_filter():
     if institution:
         conditions.append('institution=:institution')
         params['institution'] = institution
+    if source_filter == 'observatorio':
+        conditions.append("source_kind LIKE 'Observatorio%'")
+    elif source_filter == 'sicop':
+        conditions.append("source_kind LIKE 'Reporte SICOP%'")
     tech_where, tech_params = classified_sql(tech)
     if tech_where:
         conditions.append(tech_where)
@@ -715,9 +938,15 @@ def search_filter():
         conditions.append('it_priority=:column_priority')
         params['column_priority'] = column['column_priority']
     if column['column_area']:
-        conditions.append("COALESCE(it_labels,'') LIKE :column_area")
-        params['column_area'] = '%' + json.dumps(AREA_LABELS[column['column_area']],
-                                                 ensure_ascii=False) + '%'
+        if column['column_area'] == 'soc_related':
+            # Same SOC family as the main commercial profile: direct and indirect.
+            soc_clause, soc_args = classified_sql('soc_related')
+            conditions.append(soc_clause)
+            params.update(soc_args)
+        else:
+            conditions.append("COALESCE(it_labels,'') LIKE :column_area")
+            params['column_area'] = '%' + json.dumps(AREA_LABELS[column['column_area']],
+                                                     ensure_ascii=False) + '%'
     for key, comparator in (('published_from','>='), ('published_to','<=')):
         publication = parse_publication_date(column[key])
         # Date picker only uses ISO dates; a malicious/freeform input is ignored.
@@ -741,7 +970,7 @@ def search_filter():
             except ValueError:
                 column[key] = ''
     where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
-    return q, status, institution, tech, priority, column, where, params
+    return q, status, institution, tech, priority, column, where, params, source_filter
 
 
 SORT_OPTIONS = (('relevance', 'Mayor relevancia'),
@@ -755,8 +984,8 @@ SORT_SQL = {
 }
 
 
-def table_query_args(q, status, institution, tech, priority, column, per_page, sort):
-    args = {'q': q, 'status': status, 'institution': institution, 'tech': tech,
+def table_query_args(q, status, institution, tech, priority, column, per_page, sort, source_filter):
+    args = {'q': q, 'status': status, 'institution': institution, 'tech': tech, 'source': source_filter,
             'priority': priority, 'per_page': per_page, 'sort': sort}
     args.update({k: v for k,v in column.items() if v})
     return args
@@ -765,6 +994,7 @@ def table_query_args(q, status, institution, tech, priority, column, per_page, s
 # Filter chips use the same canonical parameters as CSV/pagination links.
 # Removing a chip never changes a different active filter.
 FILTER_DESCRIPTIONS = {
+    'source': 'Origen',
     'q': 'Búsqueda', 'status': 'Estado (anterior)',
     'institution': 'Cliente (anterior)', 'priority': 'Prioridad (anterior)',
     'client_contains': 'Cliente', 'description_contains': 'Descripción',
@@ -788,6 +1018,8 @@ def describe_filters(query_args):
                 continue
             label, shown = 'Perfil', dict(TECH_FILTER_OPTIONS).get(value, value)
             cleared = {**query_args, 'tech': 'noventiq'}
+        elif key == 'source' and value == 'all':
+            continue
         elif key in FILTER_DESCRIPTIONS:
             label = FILTER_DESCRIPTIONS[key]
             shown = 'Sí' if key == 'publication_missing' else value
@@ -809,7 +1041,7 @@ def positive_int(value, default, max_value):
 @app.get('/')
 @login_required
 def index():
-    q, status, institution, tech, priority, column, where, params = search_filter()
+    q, status, institution, tech, priority, column, where, params, source_filter = search_filter()
     per_page = positive_int(request.args.get('per_page'), 50, 100)
     requested_page = positive_int(request.args.get('page'), 1, 100000000)
     sort = request.args.get('sort', 'relevance')
@@ -817,10 +1049,10 @@ def index():
         sort = 'relevance'
     order_by = SORT_SQL[sort]
     with engine.begin() as conn:
-        matched = conn.execute(text('SELECT COUNT(*) FROM tenders' + where), params).scalar_one()
+        matched = conn.execute(text('SELECT COUNT(*) FROM ' + CATALOG_FROM + where), params).scalar_one()
         pages = max(1, math.ceil(matched / per_page))
         page = min(requested_page, pages)
-        rows = conn.execute(text('SELECT * FROM tenders' + where +
+        rows = conn.execute(text('SELECT * FROM ' + CATALOG_FROM + where +
             ' ORDER BY ' + order_by + ' LIMIT :limit OFFSET :offset'),
             {**params, 'limit': per_page, 'offset': (page - 1) * per_page}).mappings().all()
         rows = [present_row(r) for r in rows]
@@ -828,19 +1060,24 @@ def index():
             COUNT(DISTINCT NULLIF(institution,'')) AS institutions,
             SUM(CASE WHEN is_it=1 THEN 1 ELSE 0 END) AS ti_total,
             SUM(CASE WHEN it_priority='Alta' THEN 1 ELSE 0 END) AS altas
-            FROM tenders''')).mappings().one()
+            FROM ''' + CATALOG_FROM)).mappings().one()
         sync_state = conn.execute(text('SELECT * FROM sync_state WHERE id=1')).mappings().one()
+        last_observatorio = conn.execute(text('SELECT * FROM observatory_imports ORDER BY imported_at DESC LIMIT 1')).mappings().first()
         last_run = conn.execute(text('''SELECT * FROM sync_runs
             ORDER BY id DESC LIMIT 1''')).mappings().first()
     query_args = table_query_args(q, status, institution, tech, priority,
-                                  column, per_page, sort)
+                                  column, per_page, sort, source_filter)
+    from zoneinfo import ZoneInfo
+    current_month = datetime.now(ZoneInfo('America/Costa_Rica')).strftime('%Y%m')
     return render_template('index.html', rows=rows, stats=stats,
-                           u=current_user(), q=q, status=status,
+                           u=current_user(), q=q, status=status, source_filter=source_filter,
                            inst=institution, tech=tech, priority=priority,
                            tech_filter_options=TECH_FILTER_OPTIONS, page=page, pages=pages,
                            matched=matched, per_page=per_page, sync_state=sync_state,
                            page_numbers=range(max(1, page-2), min(pages, page+2)+1),
-                           last_run=last_run, column=column, sort=sort,
+                           last_run=last_run, last_observatorio=last_observatorio,
+                           storage_backend=engine.dialect.name,
+                           current_month=current_month, column=column, sort=sort,
                            sort_options=SORT_OPTIONS, area_options=AREA_LABELS.items(),
                            query_args=query_args, active_chips=describe_filters(query_args),
                            column_active=any(column.values()) or bool(status or institution or priority),
@@ -887,6 +1124,113 @@ def upload_csv():
     except Exception as exc:
         flash('No se pudo importar el CSV: ' + str(exc)[:180], 'error')
     return redirect(url_for('index'))
+
+
+def next_month(month):
+    year, m = int(month[:4]), int(month[4:])
+    return f'{year + (m == 12):04d}{1 if m == 12 else m+1:02d}'
+
+
+@app.post('/admin/observatorio/history/reset')
+@admin_required
+def reset_observatorio_history():
+    try:
+        start_month = validate_month(request.form.get('start_month','202301'))
+    except ObservatoryImportError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('index'))
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO app_settings(key,value) " 
+                          "VALUES('observatorio_next_month',:month) " 
+                          "ON CONFLICT(key) DO UPDATE SET value=excluded.value"),
+                     {'month': start_month})
+    flash(f'Histórico reiniciado desde {start_month}, sin borrar registros.', 'ok')
+    return redirect(url_for('index'))
+
+
+@app.post('/admin/observatorio/history/run')
+@admin_required
+def import_observatorio_history():
+    # One month per request; resume from persisted cursor.
+    from zoneinfo import ZoneInfo
+    current = datetime.now(ZoneInfo('America/Costa_Rica')).strftime('%Y%m')
+    start_month = request.form.get('start_month', '202301')
+    try:
+        start_month = validate_month(start_month)
+    except ObservatoryImportError as exc:
+        return jsonify({'status':'error','detail':str(exc)}), 400
+    with engine.begin() as conn:
+        month = conn.execute(text("SELECT value FROM app_settings WHERE key='observatorio_next_month'")).scalar() or start_month
+    if month > current:
+        return jsonify({'status': 'complete', 'message': 'Se recorrieron los meses previstos.'})
+    try:
+        with engine.begin() as conn:
+            imported = conn.execute(text("SELECT 1 FROM observatory_imports WHERE month=:month AND status='complete'"),
+                                    {'month': month}).scalar()
+        report = {'processed': 0, 'month': month} if imported else sync_observatorio(month)
+        upcoming = next_month(month)
+        with engine.begin() as conn:
+            conn.execute(text("INSERT INTO app_settings(key,value) VALUES('observatorio_next_month',:month) ON CONFLICT(key) DO UPDATE SET value=excluded.value"), {'month': upcoming})
+        return jsonify({'status': 'complete' if upcoming > current else 'partial',
+                        'month': month, 'next_month': upcoming,
+                        'processed': report['processed'], 'skipped': bool(imported)})
+    except (ObservatoryImportError, ValueError, OSError) as exc:
+        return jsonify({'status':'error', 'month':month,'detail':str(exc)[:200]}),503
+
+
+@app.post('/admin/observatorio/incremental/run')
+@admin_required
+def incremental_observatorio():
+    try:
+        return jsonify(sync_recent_observatorio())
+    except (ObservatoryImportError, ValueError, OSError) as exc:
+        return jsonify({'status':'error','detail':str(exc)[:260]}),503
+
+
+@app.post('/admin/observatorio/import')
+@admin_required
+def import_observatorio_upload():
+    upload = request.files.get('file')
+    month = request.form.get('month','')
+    if not upload or not upload.filename.lower().endswith('.zip'):
+        flash('Seleccioná un ZIP mensual oficial del Observatorio.','error')
+        return redirect(url_for('index'))
+    try:
+        report = import_observatorio(upload.stream, month)
+        flash(f"Observatorio {month}: {report['processed']:,} registros procesados.", 'ok')
+    except (ObservatoryImportError, ValueError, OSError) as exc:
+        flash(f'No se pudo importar el ZIP: {str(exc)[:180]}', 'error')
+    return redirect(url_for('index'))
+
+
+@app.post('/admin/observatorio/sync')
+@admin_required
+def import_observatorio_online():
+    month = request.form.get('month','') or request.args.get('month','')
+    try:
+        report = sync_observatorio(month)
+        if request.headers.get('Accept') == 'application/json':
+            return jsonify(report)
+        flash(f"Observatorio {month}: {report['processed']:,} registros procesados.", 'ok')
+    except (ObservatoryImportError, ValueError, OSError) as exc:
+        if request.headers.get('Accept') == 'application/json':
+            return jsonify({'status':'error','detail':str(exc)[:250]}), 503
+        flash('No se pudo importar el mes: ' + str(exc)[:200], 'error')
+    return redirect(url_for('index'))
+
+
+@app.post('/tasks/observatorio')
+def scheduled_observatorio():
+    token = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
+    expected = os.getenv('REFRESH_TOKEN', '')
+    if not expected or not secrets.compare_digest(token, expected):
+        return {'error': 'unauthorized'}, 401
+    from zoneinfo import ZoneInfo
+    month = request.args.get('month')
+    try:
+        return jsonify(sync_observatorio(month) if month else sync_recent_observatorio())
+    except (ObservatoryImportError, ValueError, OSError) as exc:
+        return {'status':'error','detail':str(exc)[:250]}, 503
 
 
 @app.post('/admin/sync')
@@ -940,15 +1284,15 @@ def scheduled_refresh():
 @app.get('/api/tenders')
 @login_required
 def api_tenders():
-    q, status, institution, tech, priority, column, where, params = search_filter()
+    q, status, institution, tech, priority, column, where, params, source_filter = search_filter()
     per_page = positive_int(request.args.get('per_page'), 100, 500)
     page = positive_int(request.args.get('page'), 1, 100000000)
     sort = request.args.get('sort', 'relevance')
     if sort not in SORT_SQL:
         sort = 'relevance'
     with engine.begin() as conn:
-        total = conn.execute(text('SELECT COUNT(*) FROM tenders' + where), params).scalar_one()
-        rows = conn.execute(text('SELECT * FROM tenders' + where +
+        total = conn.execute(text('SELECT COUNT(*) FROM ' + CATALOG_FROM + where), params).scalar_one()
+        rows = conn.execute(text('SELECT * FROM ' + CATALOG_FROM + where +
             ' ORDER BY ' + SORT_SQL[sort] + ' LIMIT :limit OFFSET :offset'),
             {**params, 'limit': per_page, 'offset': (page - 1) * per_page}).mappings().all()
     return jsonify({'items': [present_row(r) for r in rows], 'tech': tech, 'page': page,
@@ -960,7 +1304,7 @@ def api_tenders():
 @login_required
 def export_csv():
     """Stream all matching database rows without a LIMIT or memory spike."""
-    q, status, institution, tech, priority, column, where, params = search_filter()
+    q, status, institution, tech, priority, column, where, params, source_filter = search_filter()
     sort = request.args.get('sort', 'relevance')
     if sort not in SORT_SQL:
         sort = 'relevance'
@@ -969,7 +1313,7 @@ def export_csv():
                'line_number', 'awardee', 'currency', 'amount', 'exchange_rate',
                'awarded_crc', 'status', 'source_url', 'first_seen', 'last_seen',
                'is_it', 'it_score', 'it_priority', 'it_labels',
-               'publication_date', 'classification_version']
+               'publication_date', 'closing_date', 'source_kind', 'classification_version']
 
     @stream_with_context
     def produce():
@@ -981,7 +1325,7 @@ def export_csv():
         buf.truncate(0)
         with engine.connect() as conn:
             result = conn.execution_options(stream_results=True).execute(text(
-                'SELECT ' + ','.join(columns) + ' FROM tenders' + where
+                'SELECT ' + ','.join(columns) + ' FROM ' + CATALOG_FROM + where
                 + ' ORDER BY ' + SORT_SQL[sort]), params)
             for record in result:
                 writer.writerow([value if value is not None else '' for value in record])
@@ -1000,6 +1344,12 @@ def health():
     try:
         with engine.begin() as conn:
             conn.execute(text('SELECT 1'))
-        return {'status': 'ok', 'database': engine.dialect.name}
+            db_counts = conn.execute(text('''SELECT
+                (SELECT COUNT(*) FROM tenders) AS sicop,
+                (SELECT COUNT(*) FROM observatory_tenders) AS observatorio''')).mappings().first()
+        return {'status': 'ok', 'database': engine.dialect.name,
+                'persistent_storage': engine.dialect.name == 'postgresql',
+                'sicop_rows': db_counts['sicop'],
+                'observatory_rows': db_counts['observatorio']}
     except Exception as exc:
         return {'status': 'error', 'detail': str(exc)[:100]}, 500

@@ -1,4 +1,15 @@
-# SICOP Opportunity Hub V6.1 — Noventiq
+# SICOP Opportunity Hub V8 — Noventiq (multifuente / SOC)
+
+## V8 — Observatorio oficial y SOC por funciones (28 oct 2026)
+
+- Importa los ZIP oficiales mensuales del Observatorio de Compra Pública (`DetalleCarteles`, `InstitucionesRegistradas`) y los combina sin duplicar procedimientos con las filas anteriores de SICOP/CSV. Los originales se conservan en PostgreSQL.
+- Usa `NRO_PROCEDIMIENTO`, `DESCRIPCION`, `CEDULA_INSTITUCION`, `FECHA_PUBLICACION` y `FECHA_CIERRE_RECEPCION`, con nombre del cliente cuando lo entrega la tabla de instituciones.
+- Incorpora el perfil **«SOC y servicios equivalentes»**, que reconoce servicios de monitoreo continuo, correlación, gestión de riesgo tecnológico y respuesta a incidentes aunque no aparezca la palabra «SOC». También encuentra SOC explícitos, SIEM/SOAR y SecOps.
+- La clasificación es orientativa y trata de diferenciar ciberseguridad de vigilancia física. Las coincidencias indirectas llevan aviso de revisar el pliego.
+- Los carteles históricos muestran **«Vigencia por verificar en SICOP»**. No se afirma que un expediente esté abierto por tener una fecha de cierre; puede haber prórrogas, adjudicaciones o cambios.
+- Administración: descargar un mes, importar un ZIP manual, recorrer el histórico por meses con cursor persistente o reiniciarlo desde un mes indicado. La búsqueda, la API y el CSV utilizan el catálogo unificado.
+
+**Guía:** [V8_MULTIFUENTE_SOC_DESPLIEGUE.md](V8_MULTIFUENTE_SOC_DESPLIEGUE.md). **Sin prueba en vivo contra SICOP ni el Observatorio desde este entorno**; validar con un mes en Render.
 
 ## V6.1 — Interfaz de búsqueda simplificada (28 oct 2026)
 
@@ -144,3 +155,7 @@ Nuevas categorías: SOC, SecOps/operaciones de seguridad, SIEM/SOAR, IAM/PAM, MD
 ## V6 — Administración de usuarios y contraseñas
 
 Los administradores tienen el botón **Administrar usuarios**, ubicado en el encabezado y el área de sincronización. Desde `/admin/users` pueden crear usuarios, restablecer contraseñas, asignar roles y activar/desactivar cuentas. La base `users` en PostgreSQL es la autoridad después de la migración; las variables de Render solo sirven como arranque de instalaciones nuevas. Se preservan todas las cuentas anteriores. Requiere iniciar sesión nuevamente después del despliegue. Leer `V6_USUARIOS_DESPLIEGUE.md`.
+
+## V9: almacenamiento persistente, novedades y mapa SOC
+
+Ver [V9_PERSISTENCIA_SOC_DESPLIEGUE.md](V9_PERSISTENCIA_SOC_DESPLIEGUE.md). Se evita usar SQLite efímero en Render, se ofrece un botón incremental para revisar solo los meses recientes y se compara cada procedimiento antes de escribirlo. El radar SOC distingue contratación directa, funciones equivalentes, servicios complementarios y vigilancia física no relacionada.

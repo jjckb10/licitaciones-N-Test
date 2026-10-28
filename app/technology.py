@@ -11,7 +11,9 @@ bound parameters and SQL functions available in both SQLite and PostgreSQL.
 from collections import OrderedDict
 import re
 
-CLASSIFICATION_VERSION = 5
+CLASSIFICATION_VERSION = 7
+
+from app.soc_radar import analyze_soc
 
 # Distinctive phrases are preferred to broad words like "red", "TI", "servicio",
 # "Google" in isolation where it would cause obvious false matches. All terms
@@ -55,8 +57,26 @@ TECH_AREAS = OrderedDict([
     # at word boundaries below ("SOC" must not match "sociedad").
     ('soc', (
         'soc', 'security operations center', 'centro de operaciones de seguridad',
-        'centro de operaciones de ciberseguridad', 'soc 24x7', 'soc 24/7',
+        'centro de operaciones de ciberseguridad',
+        'centros de operaciones de ciberseguridad',
+        'centros de operaciones de seguridad', 'csoc', 'soc 24x7', 'soc 24/7',
         'soc as a service', 'socaaS',
+    )),
+    # SICOP also describes outsourced SOCs through the activities delivered,
+    # rather than the acronym. Only functional phrases are listed here;
+    # the additional composite test below catches paraphrases safely.
+    ('soc_related', (
+        'monitoreo y gestión de eventos de seguridad',
+        'administración y respuesta de eventos de seguridad',
+        'monitoreo y gestión del riesgo en infraestructura tecnológica',
+        'monitoreo, gestión y mitigación del riesgo',
+        'correlación de eventos de seguridad',
+        'monitoreo de infraestructura tecnológica y atención de incidentes',
+        'gestión y mitigación del riesgo en la infraestructura tecnológica',
+        'servicio de detección y respuesta a incidentes',
+        'monitoreo 24/7 de ciberseguridad',
+        'monitoreo de amenazas y respuesta a incidentes',
+        'monitoreo de infraestructura crítica y gestión de incidentes',
     )),
     ('security_operations', (
         'secops', 'security operations', 'operaciones de seguridad',
@@ -152,8 +172,10 @@ TECH_AREAS = OrderedDict([
 
 # Broad security view: includes SOC/SecOps even if the individual description
 # does not match the general 'cybersecurity' keyword group.
+SOC_FAMILY_KEYS = ('soc', 'soc_related', 'soc_complementary', 'security_operations', 'siem', 'managed_security')
+
 SECURITY_KEYS = (
-    'cybersecurity', 'soc', 'security_operations', 'siem', 'iam',
+    'cybersecurity', 'soc', 'soc_related', 'soc_complementary', 'security_operations', 'siem', 'iam',
     'managed_security', 'vulnerability_management', 'security_governance',
 )
 
@@ -168,6 +190,9 @@ TECH_FILTER_OPTIONS = (
     ('licensing', 'Licencias y suscripciones de software'),
     ('cybersecurity', 'Ciberseguridad general'),
     ('soc', 'SOC · Centro de Operaciones de Seguridad'),
+    ('soc_related', 'SOC potencial · servicios equivalentes'),
+    ('soc_complementary', 'Seguridad relacionada · revisar alcance'),
+    ('soc_map', 'Mapa SOC completo · directos, equivalentes y relacionados'),
     ('security_operations', 'SecOps · Operaciones y administración de seguridad'),
     ('siem', 'SIEM / SOAR / monitoreo de eventos'),
     ('iam', 'IAM / PAM / gestión de identidades'),
@@ -198,7 +223,7 @@ def terms_for(selected):
     elif selected == 'security_all':
         areas = (TECH_AREAS[key] for key in SECURITY_KEYS)
     else:
-        areas = [TECH_AREAS[selected]]
+        areas = [TECH_AREAS.get(selected, ())]
     return tuple(dict.fromkeys(phrase.lower() for terms in areas for phrase in terms))
 
 
@@ -232,18 +257,76 @@ def _matches_term(document, phrase):
     suffix = r'(?!\w)' if phrase[-1].isalnum() else ''
     return re.search(prefix + re.escape(phrase) + suffix, document) is not None
 
-def matched_areas(description, object_classification=''):
-    """Informational category labels to accompany each matching result."""
+# Indirect SOC opportunities are suggestions, not verified requirements.
+# The original SICOP description is never changed by this classifier.
+_SOC_TECH_CONTEXT = (
+    'infraestructura tecnologica', 'infraestructura informatica',
+    'sistemas informaticos', 'sistemas de informacion', 'seguridad informatica',
+    'seguridad de la informacion', 'ciberseguridad', 'redes informaticas',
+    'activos digitales', 'infraestructura de ti', 'infraestructura ti',
+    'servidores', 'amenazas ciberneticas', 'riesgos tecnologicos',
+)
+_SOC_MONITOR = ('monitoreo', 'monitorizacion', 'monitorear', 'vigilancia continua',
+                'supervision continua', 'alertas de seguridad', 'alarmas informaticas')
+_SOC_RESPONSE = ('incidentes', 'respuesta', 'deteccion', 'gestion de eventos',
+                 'correlacion', 'analisis de eventos', 'analisis de amenazas',
+                 'mitigacion del riesgo', 'gestion del riesgo', 'eventos de seguridad')
+_SOC_SERVICE = ('servicio', 'contratacion', 'administracion', 'gestion', 'plataforma',
+                'herramienta', 'solucion', 'operacion', 'operaciones',
+                'licenciamiento', 'monitoreo 24', 'monitoreo continuo')
+_PHYSICAL_ONLY = ('guardas', 'guardias', 'vigilancia privada', 'seguridad fisica',
+                  'respuesta armada', 'custodia de instalaciones', 'video vigilancia',
+                  'videovigilancia', 'cctv', 'camaras de seguridad', 'patrullaje')
+
+
+def _plain(document):
+    import unicodedata
+    text = unicodedata.normalize('NFKD', str(document or '').lower())
+    return ''.join(ch for ch in text if not unicodedata.combining(ch))
+
+
+def _related_soc(document):
+    """Recognize a SOC-like service from >=2 distinct technical functions.
+
+    Disambiguate physical security from cyber operations. A generic 'monitoreo'
+    alone is not enough, and 'SOC' does not match 'sociedad'.
+    """
+    doc = _plain(document)
+    technical = any(_matches_term(doc, w) for w in _SOC_TECH_CONTEXT)
+    if not technical:
+        return False
+    monitoring = any(_matches_term(doc, w) for w in _SOC_MONITOR)
+    response = any(_matches_term(doc, w) for w in _SOC_RESPONSE)
+    service = any(_matches_term(doc, w) for w in _SOC_SERVICE)
+    if any(_matches_term(doc, w) for w in _PHYSICAL_ONLY) and not any(
+            _matches_term(doc, w) for w in ('ciberseguridad', 'seguridad informatica',
+                                           'seguridad de la informacion')):
+        return False
+    return monitoring and response and service
+
+
+def _detected_keys(description, object_classification=''):
     document = f'{description or ""} {object_classification or ""}'.lower()
-    return [AREA_LABELS[key] for key, terms in TECH_AREAS.items()
+    keys = [key for key, terms in TECH_AREAS.items()
             if any(_matches_term(document, phrase) for phrase in terms)]
+    radar = analyze_soc(description, object_classification)
+    if radar['tier'] == 'functional' and 'soc_related' not in keys:
+        keys.append('soc_related')
+    if radar['tier'] == 'complementary' and 'soc_complementary' not in keys:
+        keys.append('soc_complementary')
+    return keys
+
+
+def matched_areas(description, object_classification=''):
+    """Areas are searchable even without a literal 'SOC' in the procurement."""
+    return [AREA_LABELS[key] for key in _detected_keys(description, object_classification)]
 
 # Transparent, rules-based commercial prioritization; no automatic claim of
 # eligibility, real-time opening, budget, or deadline is made.
 AREA_WEIGHTS = {
     'microsoft': 32, 'google': 29, 'aws': 30, 'cloud': 22,
     'licensing': 27, 'cybersecurity': 25,
-    'soc': 55, 'security_operations': 43, 'siem': 44, 'iam': 38,
+    'soc': 55, 'soc_related': 48, 'soc_complementary': 15, 'security_operations': 43, 'siem': 44, 'iam': 38,
     'managed_security': 50, 'vulnerability_management': 35,
     'security_governance': 33, 'hardware': 21,
     'networking': 17, 'software': 19, 'it_services': 17,
@@ -257,9 +340,7 @@ def classify_opportunity(description, object_classification=''):
     object's description, never the institution/awardee, to reduce false hits.
     """
     labels = matched_areas(description, object_classification)
-    raw = f'{description or ""} {object_classification or ""}'.lower()
-    keys = [key for key, terms in TECH_AREAS.items()
-            if any(_matches_term(raw, word) for word in terms)]
+    keys = _detected_keys(description, object_classification)
     if not keys:
         return {'is_it': 0, 'it_score': 0, 'it_priority': 'No aplica',
                 'it_labels': [], 'it_reasons': []}
@@ -285,11 +366,13 @@ def classified_sql(selected):
         return '', {}
     if selected == 'noventiq':
         return 'is_it = 1', {}
-    if selected == 'security_all':
+    if selected in ('security_all', 'soc_related', 'soc_map'):
         parts = []
         params = {}
-        for idx, key in enumerate(SECURITY_KEYS):
-            param = f'security_area_{idx}'
+        family = SECURITY_KEYS if selected == 'security_all' else SOC_FAMILY_KEYS
+        prefix = 'security_area_' if selected == 'security_all' else 'soc_area_'
+        for idx, key in enumerate(family):
+            param = f'{prefix}{idx}'
             parts.append(f"COALESCE(it_labels,'') LIKE :{param}")
             params[param] = '%' + json.dumps(AREA_LABELS[key], ensure_ascii=False) + '%'
         return '(' + ' OR '.join(parts) + ')', params

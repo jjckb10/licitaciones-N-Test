@@ -79,3 +79,13 @@ La migración automática agrega `tenders.publication_date` y `tenders.classific
 ## V6 — Gestión de usuarios
 
 No se modifican credenciales ni datos existentes al actualizar. La pantalla `/admin/users` permite gestionar nuevas cuentas y contraseñas sin editar Render. Se añade migración aditiva a `users`, protección CSRF y revocación de sesiones por cambios de rol/contraseña/estado. **Tras el despliegue volvé a iniciar sesión**. Conservá el `SECRET_KEY` de Render y no modifiques `DATABASE_URL`. Guía completa: `V6_USUARIOS_DESPLIEGUE.md`.
+
+## V8 — fuentes oficiales y búsqueda SOC
+
+Ver `V8_MULTIFUENTE_SOC_DESPLIEGUE.md`. La migración agrega nuevas tablas sin destruir `users` ni `tenders`. Se conserva el endpoint HTML original y se habilitan ZIP mensuales oficiales importables desde Administración. **Probar primero un mes en Render** y no interpretar históricos como ofertas abiertas. Las búsquedas `tech=soc_related` reúnen SOC directos y servicios equivalentes (monitoreo/gestión/respuesta).
+
+## V9: advertencia de persistencia
+
+- Agregar `REQUIRE_PERSISTENT_DB=1` y verificar `DATABASE_URL` antes del despliegue; sin PostgreSQL el servicio deja de arrancar en lugar de perder silenciosamente los registros.
+- Las bases PostgreSQL gratis de Render **vencen 30 días después de crearse**. Se necesita migrar a un servicio de base de datos persistente y respaldado para conservar los datos a largo plazo.
+- El botón `Actualizar novedades sin reiniciar` importa solo meses recientes; ver [V9_PERSISTENCIA_SOC_DESPLIEGUE.md](V9_PERSISTENCIA_SOC_DESPLIEGUE.md).

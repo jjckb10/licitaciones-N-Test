@@ -124,5 +124,6 @@ def test_admin_actions_remain_accessible_in_collapsed_panel():
     assert soup.find('a',href='/manage_users')
     for endpoint in ('/manual_sync','/reset_sync','/upload_csv'):
         assert soup.find('form',action=endpoint)
-    assert html.count('name="csrf_token"') == 3
+    # Extra authenticated Observatory ZIP forms are protected as well.
+    assert html.count('name="csrf_token"') >= 5
     assert 'X-CSRF-Token' in html
