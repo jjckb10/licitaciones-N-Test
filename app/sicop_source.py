@@ -17,6 +17,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from app.record_quality import currency_code
+
 
 class SICOPSourceError(RuntimeError):
     pass
@@ -131,13 +133,48 @@ def _extract_table(table):
         if proc_index is None:
             continue
         if headings is not None:
-            header_idx = next(i for i, h in enumerate(headings)
-                              if normalize(h) in PROCEDURE_HEADERS)
-            offset = proc_index - header_idx
-            record = {name: values[i + offset] for i, name in enumerate(headings)
-                      if name and 0 <= i + offset < len(values)}
-            if _valid_record(record):
-                found.append(record)
+            # Some report versions render a "Tipo modalidad" header but omit
+            # its TD in particular result rows. A naive zip shifts every
+            # subsequent field, making the "Moneda" column an unrelated text.
+            header_variants = [headings]
+            if any(normalize(h) == 'tipo_modalidad' for h in headings):
+                header_variants.append([h for h in headings
+                                        if normalize(h) != 'tipo_modalidad'])
+            options = []
+            for candidate_headers in header_variants:
+                header_idx = next(i for i, h in enumerate(candidate_headers)
+                                  if normalize(h) in PROCEDURE_HEADERS)
+                offset = proc_index - header_idx
+                record = {name: values[i + offset] for i, name in enumerate(candidate_headers)
+                          if name and 0 <= i + offset < len(values)}
+                if not _valid_record(record):
+                    continue
+                by_key = {normalize(k): v for k, v in record.items()}
+                currency = by_key.get('moneda', '')
+                code = currency_code(currency)
+                # Prefer a verified currency with a header/data shape match;
+                # do not choose a shifted row merely because its procedure ID
+                # is valid. Keep unrepairable rows so the importer can
+                # quarantine their raw values without silently losing them.
+                exact_columns = len(values) - offset == len(candidate_headers)
+                rank = (10 if code is not None else 0) + (5 if exact_columns else 0)
+                options.append((rank, record))
+            if options:
+                best_rank, best_record = max(options, key=lambda pair: pair[0])
+                # If two layouts tie but disagree about the currency or
+                # essential fields, keep the original layout for quarantine.
+                tied = [record for rank, record in options if rank == best_rank]
+                if len(tied) == 1 or all(r == tied[0] for r in tied):
+                    chosen = best_record
+                else:
+                    chosen = options[0][1]
+                if currency_code(next((v for k, v in chosen.items()
+                                      if normalize(k) == 'moneda'), '')) is None:
+                    # Retain all raw cells/headers for a possible correction
+                    # without needing to request the blocked SICOP page again.
+                    chosen['_sicop_original_cells'] = values
+                    chosen['_sicop_column_headers'] = headings
+                found.append(chosen)
                 continue
         # Fallback for split/unlabeled headings with standard 15 field order.
         # Never infer a real institution from a procedure-type column.

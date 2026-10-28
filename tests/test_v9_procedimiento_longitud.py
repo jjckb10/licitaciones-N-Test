@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 
+from app.record_quality import currency_code
 from app.sicop_source import (canonical_procedure_number, parse_page,
                               SICOPSourceError)
 from app.presentation import clean_description, buyer_name
@@ -49,6 +50,7 @@ def _isolated_upsert():
         'date_from_row': date_from_row, 'classify_opportunity': classify_opportunity,
         'CLASSIFICATION_VERSION': CLASSIFICATION_VERSION,
         'utcnow': lambda: datetime.now(timezone.utc).isoformat(), 'json': json,
+        'currency_code': currency_code,
     }
     exec(compile(ast.Module(body=funcs, type_ignores=[]), '<isolated app.main>', 'exec'), namespace)
     return namespace, engine
@@ -98,9 +100,9 @@ def test_upsert_refuses_garbage_instead_of_corrupting_db():
 
 def test_field_length_problem_names_its_field_before_database_error():
     ns, _ = _isolated_upsert()
-    with pytest.raises(SICOPSourceError, match='Campo Moneda demasiado largo'):
+    with pytest.raises(SICOPSourceError, match='Moneda inconsistente'):
         ns['upsert_rows']([{'Número procedimiento': PROC, 'Moneda': 'CRC-'*70}])
-    with pytest.raises(SICOPSourceError, match='Campo Estado de procedimiento demasiado largo'):
+    with pytest.raises(SICOPSourceError, match='Estado de procedimiento inconsistente'):
         ns['upsert_rows']([{'Número procedimiento': PROC,
                             'Estado de procedimiento': 'vigente'*80}])
 

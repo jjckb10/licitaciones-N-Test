@@ -108,6 +108,7 @@
  <summary>Administración · Sincronización SICOP {% if last_run %}<span class="tiny">— Último intento: {{last_run.status}}</span>{% endif %}</summary>
  <p class="muted small" style="margin-top:12px">La sincronización conserva todos los registros y clasifica las oportunidades de Noventiq al guardarlas. La fuente «Datos abiertos concursos» puede no incluir fechas de publicación ni todas las licitaciones abiertas.</p>
  <div class="info">{% if sync_state.next_page>1 %}Continuar desde página {{sync_state.next_page}}{% if sync_state.total_pages %} de {{sync_state.total_pages}}{% endif %}.{% else %}Recorrido listo para iniciar desde página 1.{% endif %}{% if sync_state.total_results is not none %} · Total informado por SICOP: {{sync_state.total_results}}{% endif %}{% if last_run %}<br>Último intento: {{last_run.imported}} filas · {{last_run.finished_at}} · {{last_run.message}}{% endif %}</div>
+ {% if issue_total %}<div class="info"><strong>Atención:</strong> {{issue_total}} fila(s) de SICOP con datos inconsistentes se conservaron sin publicarse como licitaciones. <a href="{{url_for('export_sicop_issues')}}">Descargar incidencias para revisión (CSV)</a>. El sistema conserva sus datos originales para corregirlas posteriormente.</div>{% endif %}
  <div class="admin-actions">
   <button id="sync-all" type="button">Sincronizar todas las páginas</button>
   <form method="post" action="{{url_for('manual_sync')}}"><input type="hidden" name="csrf_token" value="{{csrf_token}}"><button class="secondary">Solo siguiente bloque</button></form>
@@ -218,7 +219,7 @@
         if (!response.ok) throw new Error(data.detail || `Error HTTP ${response.status}`);
         blocks++;
         processed += data.processed || 0;
-        output.textContent = `Bloques: ${blocks} · Filas procesadas: ${processed} · ` + (data.status==='complete' ? 'Recorrido completo.' : `Siguiente página: ${data.next_page} de ${data.total_pages || '?'}`);
+        output.textContent = `Bloques: ${blocks} · Filas procesadas: ${processed} · Incidencias en último bloque: ${data.issues || 0} · ` + (data.status==='complete' ? 'Recorrido completo.' : `Siguiente página: ${data.next_page} de ${data.total_pages || '?'}`);
         if (data.status === 'complete') { window.location.reload(); return; }
         if (!data.pages_processed) throw new Error('No se avanzó ninguna página. Revisá el acceso a SICOP.');
       }

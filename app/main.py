@@ -1,6 +1,7 @@
 """SICOP Opportunity Hub — paginated SICOP import and searchable database."""
 import csv
 import io
+import hashlib
 import json
 import math
 import os
@@ -14,6 +15,7 @@ from functools import wraps
 from flask import (Flask, Response, flash, jsonify, redirect, render_template,
                    request, session, stream_with_context, url_for)
 from sqlalchemy import create_engine, text, inspect
+from sqlalchemy.sql.sqltypes import String
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -24,6 +26,7 @@ from app.technology import (TECH_FILTER_OPTIONS, matched_areas,
 from app.presentation import buyer_name, clean_description, brief_description
 from app.publication import date_from_row, display_publication_date, parse_publication_date
 from app.technology import AREA_LABELS, CLASSIFICATION_VERSION
+from app.record_quality import currency_code
 from app.catalog_sql import CATALOG_FROM
 from app.soc_radar import analyze_soc
 from app.incremental import recent_months, due_for_refresh
@@ -76,7 +79,7 @@ DDL = [
        description TEXT,procedure_number VARCHAR(140),institution TEXT,
        procedure_type TEXT,modality TEXT,object_classification TEXT,item TEXT,
        line_number TEXT,awardee TEXT,currency VARCHAR(20),amount DOUBLE PRECISION,
-       exchange_rate DOUBLE PRECISION,awarded_crc DOUBLE PRECISION,status VARCHAR(180),
+       exchange_rate DOUBLE PRECISION,awarded_crc DOUBLE PRECISION,status TEXT,
        source_url TEXT,first_seen TEXT,last_seen TEXT, publication_date VARCHAR(10),
        is_it INTEGER,it_score INTEGER,it_priority VARCHAR(20),it_labels TEXT,
        classification_version INTEGER)''',
@@ -98,6 +101,10 @@ DDL = [
     '''CREATE TABLE IF NOT EXISTS sync_state(id INTEGER PRIMARY KEY,next_page INTEGER NOT NULL,
        total_pages INTEGER,total_results INTEGER,pages_done INTEGER NOT NULL DEFAULT 0,
        last_signature TEXT,lock_id TEXT,locked_until TEXT,updated_at TEXT)''',
+    '''CREATE TABLE IF NOT EXISTS sicop_row_issues(
+       issue_id VARCHAR(64) PRIMARY KEY,page_number INTEGER,
+       procedure_number VARCHAR(140),reason TEXT NOT NULL,raw_row TEXT NOT NULL,
+       first_seen TEXT,last_seen TEXT,attempts INTEGER NOT NULL DEFAULT 1)''',
     '''CREATE INDEX IF NOT EXISTS ix_tenders_procedure ON tenders(procedure_number)''',
     '''CREATE INDEX IF NOT EXISTS ix_tenders_status ON tenders(status)''',
 ]
@@ -172,6 +179,38 @@ def utcnow():
 _INITIALIZED_ENGINE = None
 
 
+# Existing installations may still have VARCHAR(140) columns from V1-V8.
+# CREATE TABLE IF NOT EXISTS does NOT change those columns. Widen only free-
+# text fields, never identifiers, numeric fields, codes or account columns.
+_LEGACY_TEXT_FIELDS = {
+    'tenders': frozenset((
+        'description','institution','procedure_type','modality',
+        'object_classification','item','line_number','awardee','status',
+        'source_url','first_seen','last_seen','it_labels')),
+    'observatory_tenders': frozenset((
+        'description','institution','procedure_type','modality',
+        'object_classification','status','source_url','first_seen',
+        'last_seen','it_labels')),
+}
+
+
+def widen_legacy_text_columns(conn):
+    """Non-destructive PostgreSQL migration preserving historical records."""
+    if conn.dialect.name != 'postgresql':
+        return 0
+    changed = 0
+    for table, names in _LEGACY_TEXT_FIELDS.items():
+        for column in inspect(conn).get_columns(table):
+            kind = column['type']
+            colname = column['name']
+            # A preexisting CHAR/VARCHAR(n) could truncate a company name or
+            # description. TEXT is the intended type; values are untouched.
+            if colname in names and isinstance(kind, String) and kind.length:
+                conn.execute(text(f'ALTER TABLE {table} ALTER COLUMN {colname} TYPE TEXT'))
+                changed += 1
+    return changed
+
+
 def init_db():
     global _INITIALIZED_ENGINE
     if _INITIALIZED_ENGINE is engine:
@@ -184,6 +223,7 @@ def init_db():
     with engine.begin() as conn:
         for stmt in statements:
             conn.execute(text(stmt))
+        widen_legacy_text_columns(conn)
         existing = {col['name'] for col in inspect(conn).get_columns('tenders')}
         for name, kind in (('is_it', 'INTEGER'), ('it_score', 'INTEGER'),
                            ('it_priority', 'VARCHAR(20)'), ('it_labels', 'TEXT'),
@@ -393,66 +433,82 @@ def number(val):
         return None
 
 
-def upsert_rows(rows, conn=None):
+def upsert_rows(rows, conn=None, issues=None):
     """Save one batch; callers may share a transaction with the sync cursor."""
     now = utcnow()
     processed = []
     for row in rows:
-        raw_procedure = value(row, 'Número procedimiento', 'Número de procedimiento',
-                              'procedure_number')
-        if not raw_procedure:
-            continue  # Blank/non-procedure CSV rows are ignored as before.
-        procedure = canonical_procedure_number(raw_procedure)
-        if not procedure:
-            raise SICOPSourceError(
-                'Número de procedimiento inválido o ambiguo en la fila '
-                f'{len(processed) + 1} (longitud recibida: {len(raw_procedure)}). '
-                'Revisá el HTML o los encabezados del CSV de SICOP. '
-                'No se avanzó ni se truncó el dato.')
-        item = value(row, 'Partida', 'item') or '0'
-        line = value(row, 'Número de línea', 'Numero linea', 'line_number') or '0'
-        record_id = f'{procedure}|{item}|{line}'
-        # Preserve original IDs used by older installations.
-        if len(record_id) > 220:
-            raise SICOPSourceError('Partida o línea demasiado larga en el procedimiento '
-                                   f'{procedure}; verificá la alineación de la tabla SICOP.')
-        description = clean_description(value(row, 'Descripción',
-                                        'Descripción del procedimiento',
-                                        'Objeto contractual', 'Objeto de contratación',
-                                        'description'))
-        buyer = buyer_name(value(row, 'Institución', 'Institución contratante',
-                                 'Entidad contratante', 'Entidad solicitante',
-                                 'Nombre de la institución', 'Cliente',
-                                 'Comprador', 'institution', 'client_name'))
-        object_kind = value(row, 'Clasificación objeto', 'object_classification')
-        scoring = classify_opportunity(description, object_kind)
-        currency = value(row, 'Moneda', 'currency')
-        status = value(row, 'Estado de procedimiento', 'status')
-        if len(currency) > 20 or len(status) > 180:
-            bad_field = 'Moneda' if len(currency) > 20 else 'Estado de procedimiento'
-            raise SICOPSourceError(
-                f'Campo {bad_field} demasiado largo en {procedure}. '
-                'El formato del reporte SICOP pudo cambiar; se conservó el avance anterior.')
-        processed.append({
-            'id': record_id, 'procedure_number': procedure,
-            'description': description, 'institution': buyer,
-            'procedure_type': value(row, 'Tipo Procedimiento', 'procedure_type'),
-            'modality': value(row, 'Tipo modalidad', 'modality'),
-            'object_classification': object_kind,
-            'item': item, 'line_number': line,
-            'awardee': value(row, 'Adjudicatario', 'awardee'),
-            'currency': currency,
-            'amount': number(value(row, 'Monto', 'amount')),
-            'exchange_rate': number(value(row, 'Tipo de cambio', 'exchange_rate')),
-            'awarded_crc': number(value(row, 'Monto adjudicado en colones', 'awarded_crc')),
-            'status': status,
-            'source_url': SICOP_OPEN_DATA_URL, 'first_seen': now, 'last_seen': now,
-            'publication_date': date_from_row(row),
-            'classification_version': CLASSIFICATION_VERSION,
-            'is_it': scoring['is_it'], 'it_score': scoring['it_score'],
-            'it_priority': scoring['it_priority'],
-            'it_labels': json.dumps(scoring['it_labels'], ensure_ascii=False),
-        })
+        try:
+            raw_procedure = value(row, 'Número procedimiento', 'Número de procedimiento',
+                                  'procedure_number')
+            if not raw_procedure:
+                continue  # Blank/non-procedure CSV rows are ignored as before.
+            procedure = canonical_procedure_number(raw_procedure)
+            if not procedure:
+                raise SICOPSourceError(
+                    'Número de procedimiento inválido o ambiguo en la fila '
+                    f'{len(processed) + 1} (longitud recibida: {len(raw_procedure)}). '
+                    'Revisá el HTML o los encabezados del CSV de SICOP. '
+                    'No se avanzó ni se truncó el dato.')
+            item = value(row, 'Partida', 'item') or '0'
+            line = value(row, 'Número de línea', 'Numero linea', 'line_number') or '0'
+            record_id = f'{procedure}|{item}|{line}'
+            # Preserve original IDs used by older installations.
+            if len(record_id) > 220:
+                raise SICOPSourceError('Partida o línea demasiado larga en el procedimiento '
+                                       f'{procedure}; verificá la alineación de la tabla SICOP.')
+            description = clean_description(value(row, 'Descripción',
+                                            'Descripción del procedimiento',
+                                            'Objeto contractual', 'Objeto de contratación',
+                                            'description'))
+            buyer = buyer_name(value(row, 'Institución', 'Institución contratante',
+                                     'Entidad contratante', 'Entidad solicitante',
+                                     'Nombre de la institución', 'Cliente',
+                                     'Comprador', 'institution', 'client_name'))
+            object_kind = value(row, 'Clasificación objeto', 'object_classification')
+            scoring = classify_opportunity(description, object_kind)
+            raw_currency = value(row, 'Moneda', 'currency')
+            currency = currency_code(raw_currency)
+            status = value(row, 'Estado de procedimiento', 'status')
+            if currency is None:
+                raise SICOPSourceError(
+                    f'Moneda inconsistente en {procedure} (longitud {len(raw_currency)}). '
+                    'Posible columna desplazada en el HTML de SICOP.')
+            if len(status) > 180:
+                raise SICOPSourceError(
+                    f'Estado de procedimiento inconsistente en {procedure} '
+                    f'(longitud {len(status)}). Posible columna desplazada.')
+            processed.append({
+                'id': record_id, 'procedure_number': procedure,
+                'description': description, 'institution': buyer,
+                'procedure_type': value(row, 'Tipo Procedimiento', 'procedure_type'),
+                'modality': value(row, 'Tipo modalidad', 'modality'),
+                'object_classification': object_kind,
+                'item': item, 'line_number': line,
+                'awardee': value(row, 'Adjudicatario', 'awardee'),
+                'currency': currency,
+                'amount': number(value(row, 'Monto', 'amount')),
+                'exchange_rate': number(value(row, 'Tipo de cambio', 'exchange_rate')),
+                'awarded_crc': number(value(row, 'Monto adjudicado en colones', 'awarded_crc')),
+                'status': status,
+                'source_url': SICOP_OPEN_DATA_URL, 'first_seen': now, 'last_seen': now,
+                'publication_date': date_from_row(row),
+                'classification_version': CLASSIFICATION_VERSION,
+                'is_it': scoring['is_it'], 'it_score': scoring['it_score'],
+                'it_priority': scoring['it_priority'],
+                'it_labels': json.dumps(scoring['it_labels'], ensure_ascii=False),
+            })
+        except SICOPSourceError as exc:
+            if issues is None:
+                raise
+            # Do not drop a malformed public record or corrupt good fields.
+            # Preserve all source values for later analysis/reprocessing.
+            raw_procedure = value(row, 'Número procedimiento', 'Número de procedimiento',
+                                  'procedure_number')
+            issues.append({
+                'procedure_number': canonical_procedure_number(raw_procedure),
+                'reason': str(exc), 'raw_row': row,
+            })
     if conn is not None:
         if processed:
             conn.execute(UPSERT, processed)
@@ -584,6 +640,30 @@ def sync_recent_observatorio():
             'message':'No hay meses recientes pendientes de revisión.'}
 
 
+def store_sicop_issues(conn, page_number, issues):
+    """Durably quarantine malformed rows in the same transaction as cursor.
+
+    Allows a 10-row page with 9 good records and one malformed row to advance
+    without losing its original contents. Review them in the admin CSV.
+    """
+    for item in issues:
+        raw = json.dumps(item['raw_row'], ensure_ascii=False, sort_keys=True,
+                         default=str)
+        issue_id = hashlib.sha256(f'{page_number}|{raw}'.encode('utf-8')).hexdigest()
+        conn.execute(text('''INSERT INTO sicop_row_issues (
+            issue_id,page_number,procedure_number,reason,raw_row,
+            first_seen,last_seen,attempts)
+            VALUES (:issue_id,:page,:procedure,:reason,:raw,:now,:now,1)
+            ON CONFLICT(issue_id) DO UPDATE SET
+                reason=excluded.reason,last_seen=excluded.last_seen,
+                attempts=sicop_row_issues.attempts+1'''), {
+            'issue_id': issue_id, 'page': page_number,
+            'procedure': item['procedure_number'], 'reason': item['reason'],
+            'raw': raw, 'now': utcnow(),
+        })
+    return len(issues)
+
+
 def start_lease():
     """Prevent two Render workers/schedulers importing the same cursor concurrently."""
     lease_id = uuid.uuid4().hex
@@ -614,7 +694,7 @@ def refresh_public_page():
     """
     started = utcnow()
     started_clock = time.monotonic()
-    count = page_count = 0
+    count = page_count = issue_count = 0
     status = 'partial'
     message = ''
     lease_id = None
@@ -658,9 +738,13 @@ def refresh_public_page():
                         raise SICOPSourceError('SICOP no devolvió registros ni total verificable.')
 
                 with engine.begin() as conn:
-                    saved = upsert_rows(page.rows, conn)
-                    if page.rows and saved == 0:
+                    page_issues = []
+                    saved = upsert_rows(page.rows, conn, issues=page_issues)
+                    if page.rows and saved == 0 and not page_issues:
                         raise SICOPSourceError(f'Ningún registro válido en página {cursor}.')
+                    # The cursor moves only after both valid rows and raw
+                    # quarantined records have been committed successfully.
+                    issue_count += store_sicop_issues(conn, cursor, page_issues)
                     count += saved
                     page_count += 1
                     next_page = 1 if finished else cursor + 1
@@ -685,6 +769,10 @@ def refresh_public_page():
                 page = None
             message = ('Se completó el recorrido de la fuente.' if status == 'complete'
                        else 'Avance guardado. Ejecuta otra sincronización para continuar.')
+            if issue_count:
+                message += (f' {issue_count} fila(s) con campos inconsistentes fueron '
+                            'guardadas en incidencias para revisión; no se incluyeron '
+                            'como licitaciones verificadas.')
         finally:
             source.close()
     except Exception as exc:
@@ -705,7 +793,7 @@ def refresh_public_page():
     report = {'status': status, 'processed': count, 'pages_processed': page_count,
               'next_page': state['next_page'], 'total_pages': state['total_pages'],
               'source_results': state['total_results'], 'stored': stored,
-              'message': message}
+              'message': message, 'issues': issue_count}
     return report
 
 
@@ -1072,6 +1160,7 @@ def index():
             ' ORDER BY ' + order_by + ' LIMIT :limit OFFSET :offset'),
             {**params, 'limit': per_page, 'offset': (page - 1) * per_page}).mappings().all()
         rows = [present_row(r) for r in rows]
+        issue_total = conn.execute(text('SELECT COUNT(*) FROM sicop_row_issues')).scalar_one()
         stats = conn.execute(text('''SELECT COUNT(*) AS total,
             COUNT(DISTINCT NULLIF(institution,'')) AS institutions,
             SUM(CASE WHEN is_it=1 THEN 1 ELSE 0 END) AS ti_total,
@@ -1092,7 +1181,7 @@ def index():
                            matched=matched, per_page=per_page, sync_state=sync_state,
                            page_numbers=range(max(1, page-2), min(pages, page+2)+1),
                            last_run=last_run, last_observatorio=last_observatorio,
-                           storage_backend=engine.dialect.name,
+                           storage_backend=engine.dialect.name, issue_total=issue_total,
                            current_month=current_month, column=column, sort=sort,
                            sort_options=SORT_OPTIONS, area_options=AREA_LABELS.items(),
                            query_args=query_args, active_chips=describe_filters(query_args),
@@ -1351,6 +1440,35 @@ def export_csv():
 
     return Response(produce(), mimetype='text/csv; charset=utf-8', headers={
         'Content-Disposition': 'attachment; filename="sicop-licitaciones.csv"',
+        'Cache-Control': 'no-store',
+    })
+
+
+@app.get('/admin/sicop/issues.csv')
+@admin_required
+def export_sicop_issues():
+    """Download original malformed rows for review; admin-only."""
+    fields = ['page_number','procedure_number','reason','raw_row',
+              'first_seen','last_seen','attempts']
+
+    @stream_with_context
+    def produce():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(fields)
+        yield buf.getvalue()
+        buf.seek(0); buf.truncate(0)
+        with engine.connect() as conn:
+            results = conn.execution_options(stream_results=True).execute(text(
+                'SELECT ' + ','.join(fields) + ' FROM sicop_row_issues '
+                'ORDER BY page_number,first_seen'))
+            for row in results:
+                writer.writerow([row._mapping[key] for key in fields])
+                yield buf.getvalue()
+                buf.seek(0); buf.truncate(0)
+
+    return Response(produce(), mimetype='text/csv; charset=utf-8', headers={
+        'Content-Disposition': 'attachment; filename="sicop-incidencias.csv"',
         'Cache-Control': 'no-store',
     })
 

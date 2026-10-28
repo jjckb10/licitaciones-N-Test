@@ -159,3 +159,8 @@ Los administradores tienen el botón **Administrar usuarios**, ubicado en el enc
 ## V9: almacenamiento persistente, novedades y mapa SOC
 
 Ver [V9_PERSISTENCIA_SOC_DESPLIEGUE.md](V9_PERSISTENCIA_SOC_DESPLIEGUE.md). Se evita usar SQLite efímero en Render, se ofrece un botón incremental para revisar solo los meses recientes y se compara cada procedimiento antes de escribirlo. El radar SOC distingue contratación directa, funciones equivalentes, servicios complementarios y vigilancia física no relacionada.
+
+
+## V9.2 — Corrección de página 47 y campos antiguos (28/oct/2026)
+
+La versión V9.2 repara filas SICOP con encabezado de modalidad omitido, valida las monedas antes de guardar y conserva filas inconsistentes en `sicop_row_issues` para revisión administrativa. PostgreSQL amplía automáticamente columnas heredadas de texto `VARCHAR(n)` a `TEXT` sin eliminar registros. Ver `V9_2_CORRECCION_MONEDA_PAGINA_47.md`.
